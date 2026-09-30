@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Horseshoe Hell Field Guide</title>
+<meta name="theme-color" content="#23302f" media="(prefers-color-scheme: dark)">
+<meta name="theme-color" content="#eef0ea" media="(prefers-color-scheme: light)">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="HHH Guide">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="styles.css">
+</head>
+<body>
+<header class="clock" id="clock">
+  <div class="clock-row">
+    <button class="clock-now" id="btnNow" type="button">Now</button>
+    <output class="clock-time" id="clockTime" for="hour">1:00 pm</output>
+    <input class="clock-date" id="date" type="date" aria-label="Date">
+  </div>
+  <div class="dial" id="dial" aria-hidden="true"><canvas id="dialCanvas"></canvas></div>
+  <input class="hour" id="hour" type="range" min="0" max="23.75" step="0.25" value="13" aria-label="Time of day">
+  <p class="clock-sun" id="clockSun"></p>
+</header>
+
+<main>
+  <section class="view" id="view-routes" data-view="routes">
+    <div class="toolbar">
+      <input class="search" id="q" type="search" placeholder="Search routes, walls, numbers" autocomplete="off">
+      <button class="filter-toggle" id="btnFilters" type="button" aria-expanded="false" aria-controls="filters">Filters <span id="filterCount"></span></button>
+    </div>
+    <div class="filters" id="filters" hidden>
+      <fieldset>
+        <legend>Grade</legend>
+        <div class="range2">
+          <select id="gmin" aria-label="Lowest grade"></select>
+          <span>to</span>
+          <select id="gmax" aria-label="Highest grade"></select>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Side of canyon</legend>
+        <div class="chips" data-key="side">
+          <button type="button" data-v="West">West</button><button type="button" data-v="North">North</button><button type="button" data-v="East">East</button><button type="button" data-v="Valley">Valley</button>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Style</legend>
+        <div class="chips" data-key="type">
+          <button type="button" data-v="sport">Sport</button><button type="button" data-v="trad">Trad</button><button type="button" data-v="mixed">Mixed</button>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Grade feel (Mountain Project)</legend>
+        <div class="chips" data-key="feel">
+          <button type="button" data-v="soft">Soft</button><button type="button" data-v="on">On grade</button><button type="button" data-v="stiff">Stiff</button>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Sun at the selected time</legend>
+        <div class="chips" data-key="sun">
+          <button type="button" data-v="shade">Shade</button><button type="button" data-v="sun">Sun</button>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Lists</legend>
+        <div class="chips" data-key="list">
+          <button type="button" data-v="target">Targets</button><button type="button" data-v="avoid">Avoid for points</button><button type="button" data-v="z26">Climbed in 2026</button><button type="button" data-v="mine">My notes</button><button type="button" data-v="comp">In the comp</button>
+        </div>
+      </fieldset>
+      <div class="filters-foot">
+        <label>Sort
+          <select id="sort">
+            <option value="walk">Walking order</option>
+            <option value="pts">Points, high to low</option>
+            <option value="bar">Points bargain</option>
+            <option value="soft">Softest for grade</option>
+            <option value="grade">Grade, low to high</option>
+            <option value="num">Comp number</option>
+          </select>
+        </label>
+        <button type="button" class="link" id="btnReset">Clear filters</button>
+      </div>
+    </div>
+    <p class="count" id="count" aria-live="polite"></p>
+    <ol class="routes" id="routes"></ol>
+  </section>
+
+  <section class="view" id="view-map" data-view="map" hidden>
+    <div class="map" id="map" tabindex="0" aria-label="Map of Horseshoe Canyon Ranch">
+      <div class="map-tiles" id="mapTiles"></div>
+      <div class="map-marks" id="mapMarks"></div>
+    </div>
+    <div class="map-ctl">
+      <button type="button" id="zin" aria-label="Zoom in">+</button>
+      <button type="button" id="zout" aria-label="Zoom out">−</button>
+      <button type="button" id="locate" aria-label="Show my location">◎</button>
+      <button type="button" id="layer" aria-label="Switch map layer">Aerial</button>
+    </div>
+    <p class="map-attr">Map: USGS The National Map</p>
+    <div class="sheet" id="areaSheet" hidden></div>
+  </section>
+
+  <section class="view" id="view-plan" data-view="plan" hidden>
+    <div class="prose" id="planBody"></div>
+  </section>
+
+  <section class="view" id="view-me" data-view="me" hidden>
+    <div class="prose">
+      <h2>Your notes</h2>
+      <label class="field">Who is using this phone?
+        <input id="climber" type="text" placeholder="Your name" autocomplete="nickname">
+      </label>
+      <p class="hint">Notes are saved on this phone only. Export them after each trip and send the file to Claude so they get merged into the master data.</p>
+      <div class="btnrow">
+        <button type="button" class="primary" id="btnExport">Export notes</button>
+        <label class="button">Import notes<input id="fileImport" type="file" accept="application/json,.json" hidden></label>
+      </div>
+      <p class="status" id="noteStatus"></p>
+
+      <h2>Offline</h2>
+      <p class="hint" id="offlineStatus">Checking…</p>
+      <div class="btnrow">
+        <button type="button" class="primary" id="btnTiles">Save map for offline</button>
+      </div>
+      <p class="status" id="tileStatus"></p>
+
+      <h2>Display</h2>
+      <div class="chips single" data-key="theme">
+        <button type="button" data-v="auto">Match phone</button><button type="button" data-v="light">Day</button><button type="button" data-v="dark">Night</button><button type="button" data-v="red">Headlamp red</button>
+      </div>
+
+      <h2>About the data</h2>
+      <p class="hint">Route list and points: 2026 Horseshoe Hell scorecard. Grades, stars, votes, comments and tick logs: Mountain Project, pulled Sep 30, 2026. Wall direction comes from Mountain Project area notes where stated, otherwise from the side of the canyon. Sun times are calculated for the ranch and don't account for trees.</p>
+      <p class="hint" id="buildInfo"></p>
+    </div>
+  </section>
+</main>
+
+<nav class="tabs" aria-label="Sections">
+  <button type="button" data-tab="routes" aria-current="page">Routes</button>
+  <button type="button" data-tab="map">Map</button>
+  <button type="button" data-tab="plan">Plan</button>
+  <button type="button" data-tab="me">Notes</button>
+</nav>
+
+<dialog class="detail" id="detail"></dialog>
+
+<script src="version.js"></script>
+<script src="sun.js"></script>
+<script src="map.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
