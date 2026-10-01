@@ -315,6 +315,10 @@
             if (plan.reach !== false && reachBlocked(r, c)) continue;
             if (gu > c.os && (s.hardHour[hr] || 0) >= I.hard) continue;
             if (dayHard && pre.lt !== 'day' && gu >= c.os) continue;
+            const bucket = GU2(gradeLabel(r.gu, r.g));
+            if (plan.gmin && bucket < GU2(plan.gmin)) continue;
+            if (plan.gmax && bucket > GU2(plan.gmax)) continue;
+            if (plan.warm && s.laps < (plan.warmN ?? 3) && bucket > Math.max(GU2(plan.warm), plan.gmin ? GU2(plan.gmin) : -99)) continue; // warm-up routes first
             const lim = plan.gradeMax && plan.gradeMax[gradeLabel(r.gu, r.g)]; if (lim != null && (s.grades[gradeLabel(r.gu, r.g)] || 0) >= lim) continue;
             if (earlyHard && tt - plan.start >= 12 && gu >= c.os) continue;
             who.push(k);
@@ -532,6 +536,17 @@
         dv.appendChild(field(`${p.name || (k === 'me' ? 'You' : 'Partner')} division`, s, p.project ? `Default from project grade ${p.project}.` : 'Set a project grade in the You tab to default this.'));
       }
       d.appendChild(dv);
+      // grade range and warm-up
+      const gradeList = [...new Set(comp().map(r => gradeLabel(r.gu, r.g)))].filter(L => L !== '?' && L !== '5th').sort((a, b) => GU2(a) - GU2(b));
+      const gSel = (val, none, onPick, aria) => { const s = el('select'); s.setAttribute('aria-label', aria); s.add(new Option(none, '')); for (const L of gradeList) s.add(new Option(L, L)); s.value = val || ''; s.onchange = () => { onPick(s.value || undefined); save(); render(); }; return s; };
+      const rg = el('div', 'target-row');
+      rg.append(gSel(plan.gmin, 'Lowest: any', v => { plan.gmin = v; }, 'Lowest grade'), el('span', null, 'to'), gSel(plan.gmax, 'Highest: any', v => { plan.gmax = v; }, 'Highest grade'));
+      d.appendChild(field('Grade range', rg, 'Only routes in this range get planned (division and push level still cap the top).'));
+      const wu = el('div', 'target-row'); const wn = el('input'); wn.type = 'number'; wn.min = 1; wn.max = 20; wn.inputMode = 'numeric'; wn.value = plan.warmN ?? 3; wn.setAttribute('aria-label', 'Number of warm-up routes');
+      wn.onchange = () => { plan.warmN = Math.max(1, Math.min(20, Math.round(+wn.value || 3))); save(); render(); };
+      const wsel = gSel(plan.warm, 'No warm-up', v => { plan.warm = v; }, 'Warm-up grade'); wsel.style.flex = '1 1 100%';
+      wu.classList.add('wrap'); wu.append(wsel, el('span', null, 'or easier for the first'), wn, el('span', null, 'routes'));
+      d.appendChild(field('Warm-up', wu, plan.warm ? `Each of you starts with ${plan.warmN ?? 3} routes at ${plan.warm} or easier.` : 'Pick a grade to start the plan with easier routes.'));
       d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; plan.breakMin = undefined; })()),
         { conservative: 'Stays at or below onsight; one harder lap per hour per climber.', standard: 'Up to one grade over onsight early, easing off overnight; two harder laps per hour.', aggressive: 'Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
       const I = INTENSITY[plan.intensity] || INTENSITY.standard;
