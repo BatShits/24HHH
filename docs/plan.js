@@ -14,6 +14,7 @@
     laps: 'Laps (target count)',
     score: 'Score (target points)',
     height: 'Height (target feet)',
+    trad: 'Trad laps (target count)',
     full: 'Full Horseshoe',
     golden: 'Golden Horseshoe',
     qualify: 'Qualify for next year (easiest path)',
@@ -30,9 +31,9 @@
     aggressive: { label: 'I am Death Incarnate!!', ceil: [2, 1, 0, 1], hard: 3, walk: 140, walkPrep: 0.5, breaks: 0, walkName: 'a steady jog (about 8.4 km/h)' },
   };
   const WHO = ['me', 'partner'];
-  const TARGET_DEFAULT = { 24: { laps: 100, score: 12000, height: 5280 }, 12: { laps: 65, score: 8000, height: 3000 } };
+  const TARGET_DEFAULT = { 24: { laps: 100, score: 12000, height: 5280, trad: 55 }, 12: { laps: 65, score: 8000, height: 3000, trad: 40 } };
   const MANUAL_PACE = { conservative: 1.2, standard: 1, aggressive: 0.85 }; // lead-time multiplier for hand-built plans
-  const UNIT = { laps: 'laps', score: 'points', height: 'feet' };
+  const UNIT = { laps: 'laps', score: 'points', height: 'feet', trad: 'trad laps' };
   let WALKW = 2.5;
   const START_AREA = 'The Park';
   // Canyon crossings: West + North walls are one side, East walls the other; the valley floor is neutral.
@@ -319,7 +320,8 @@
             const bucket = GU2(gradeLabel(r.gu, r.g));
             if (plan.gmin && bucket < GU2(plan.gmin)) continue;
             if (plan.gmax && bucket > GU2(plan.gmax)) continue;
-            if (plan.darkMax && pre.lt !== 'day' && bucket > GU2(plan.darkMax)) continue; // hardest grade after dark
+            if (plan.darkMax && pre.lt !== 'day' && bucket > GU2(plan.darkMax)) continue;
+            if (plan.tradMax && r.type === 'trad' && bucket > GU2(plan.tradMax)) continue; // hardest trad grade // hardest grade after dark
             if (plan.warm) { // warm-up routes first, then ramp up one grade step every two routes
               const wn = plan.warmN ?? 3, base = Math.max(GU2(plan.warm), plan.gmin ? GU2(plan.gmin) : -99);
               if (bucket > base + (s.laps < wn ? 0 : 1 + Math.floor((s.laps - wn) / 2))) continue;
@@ -335,8 +337,8 @@
             const s = stats[k]; let x = 0;
             // numeric goals add up; one that's already met for this climber counts for much less
             for (const [g, T] of numGoals) {
-              const met = g === 'laps' ? s.laps >= T : g === 'height' ? s.ft >= T : s.pts >= T;
-              x += (g === 'score' ? (r.pts || 0) : g === 'laps' ? 120 : (r.ht || 40) * 3) * (met ? 0.2 : 1);
+              const met = g === 'laps' ? s.laps >= T : g === 'height' ? s.ft >= T : g === 'trad' ? s.trad >= T : s.pts >= T;
+              x += (g === 'score' ? (r.pts || 0) : g === 'laps' ? 120 : g === 'trad' ? (r.type === 'trad' ? 260 : 60) : (r.ht || 40) * 3) * (met ? 0.2 : 1);
             }
             if (goal === 'full' || goal === 'golden') {
               x += s.laps < F.laps[goal === 'golden' ? 'golden' : 'full'] ? 300 : 0;
@@ -454,6 +456,7 @@
         case 'laps': return s.laps >= T;
         case 'score': return s.pts + bonusPts(plan, s, a) >= T;
         case 'height': return s.ft >= T;
+        case 'trad': return s.trad >= T;
         case 'full': return a.full;
         case 'golden': return a.golden;
         default: return a.qual;
@@ -535,13 +538,13 @@
         plan.goals = n; plan.goal = n[0];
       })(), false);
       const F = FORMATS[plan.format];
-      const gHint = { score: `Favors soft, shaded, high-point routes. ${F.pts.qualify.toLocaleString()} points (bonuses included) qualifies for next year.`, laps: `Fastest routes you can lead cleanly. ${F.laps.qualify} laps qualifies for next year.`, height: F.ft ? `Favors tall routes. ${F.ft.toLocaleString()} ft also qualifies for next year.` : 'Favors tall routes.',
+      const gHint = { score: `Favors soft, shaded, high-point routes. ${F.pts.qualify.toLocaleString()} points (bonuses included) qualifies for next year.`, laps: `Fastest routes you can lead cleanly. ${F.laps.qualify} laps qualifies for next year.`, trad: `Trad leads count toward this. ${F.trad.qualify} trad laps qualifies for next year.`, height: F.ft ? `Favors tall routes. ${F.ft.toLocaleString()} ft also qualifies for next year.` : 'Favors tall routes.',
         full: `${F.laps.full} routes, ${plan.format === '24' ? 'all 24' : '12'} zones, and one end route at each end of the horseshoe (west: Hickadelic Jazzgrass, Meatcake, Catholic Boat, Elephant Ear or Wuwei; east: Orange Crush, Montezuma's Toe or Revenge, Purple Nehi or Supersoul Sureshot).`, golden: `${F.laps.golden} routes, ${F.trad.golden} trad, ${F.pts.golden.toLocaleString()} points and Full Horseshoe.`,
         qualify: 'Plans for the Full Horseshoe, the cheapest qualifying path for most teams.' };
       d.appendChild(field('Optimize for', g, (sel.length > 1 ? 'Pick as many as you like; the plan has to hit all of them. ' : 'Pick one or more. ') + sel.map(k => gHint[k]).join(' ')));
       const tbox = el('div', 'targets');
       for (const k of sel.filter(k => UNIT[k])) {
-        const ti = el('input'); ti.type = 'number'; ti.inputMode = 'numeric'; ti.min = 1; ti.step = k === 'laps' ? 1 : 100; ti.value = targetOf(plan, k); ti.setAttribute('aria-label', GOALS[k]);
+        const ti = el('input'); ti.type = 'number'; ti.inputMode = 'numeric'; ti.min = 1; ti.step = k === 'laps' || k === 'trad' ? 1 : 100; ti.value = targetOf(plan, k); ti.setAttribute('aria-label', GOALS[k]);
         ti.onchange = () => { plan.targets = plan.targets || {}; plan.targets[k] = Math.max(1, Math.round(+ti.value || 0)); save(); render(); };
         const row = el('div', 'target-row'); row.append(ti, el('span', null, UNIT[k] + ' per climber')); tbox.appendChild(row);
       }
@@ -566,6 +569,8 @@
       const rg = el('div', 'target-row');
       rg.append(gSel(plan.gmin, 'Lowest: any', v => { plan.gmin = v; }, 'Lowest grade'), el('span', null, 'to'), gSel(plan.gmax, 'Highest: any', v => { plan.gmax = v; }, 'Highest grade'));
       d.appendChild(field('Grade range', rg, 'Only routes in this range get planned (division and push level still cap the top).'));
+      const tk = el('div', 'target-row'); tk.append(gSel(plan.tradMax, 'No limit', v => { plan.tradMax = v; }, 'Hardest trad grade'));
+      d.appendChild(field('Hardest trad grade', tk, plan.tradMax ? `Trad routes above ${plan.tradMax} are left out; sport routes aren't affected.` : 'Optional. Caps the grade for trad leads only.'));
       const dk = el('div', 'target-row'); dk.append(gSel(plan.darkMax, 'No limit', v => { plan.darkMax = v; }, 'Hardest grade after dark'));
       const dl = Sun.daylight(plan.date);
       d.appendChild(field('Hardest grade after dark', dk, plan.darkMax ? `From dusk (about ${Sun.fmt(dl.set)}) until it's light again (about ${Sun.fmt(dl.rise)}), nothing harder than ${plan.darkMax}; harder routes get pulled into daylight.` : 'Optional. Caps the grade for climbing in the dark.'));
