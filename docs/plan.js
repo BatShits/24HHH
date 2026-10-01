@@ -32,8 +32,16 @@
   const WHO = ['me', 'partner'];
   const TARGET_DEFAULT = { 24: { laps: 100, score: 12000, height: 5280 }, 12: { laps: 65, score: 8000, height: 3000 } };
   const UNIT = { laps: 'laps', score: 'points', height: 'feet' };
-  let WALKW = 1.5;
+  let WALKW = 2.5;
   const START_AREA = 'The Park';
+  // Canyon crossings: West + North walls are one side, East walls the other; the valley floor is neutral.
+  const MAX_CROSS = { 12: 1, 24: 2 };
+  const CROSS_PEN = [30, 240]; // minutes-equivalent for the first and second crossing (one is best)
+  const TUNE = { move: 8, back: 60, valley: 6, reverse: 60, zone: 500, special: 900 }; // minutes-equivalent: any move, returning to a wall already left, valley detours
+  // Position along the cliff line, measured round the horseshoe from Crackhouse Alley (southwest) to The Far East (southeast).
+  const CANYON_C = { lat: 36.0048, lon: -93.2905 };
+  const linePos = a => { if (!a || a.lat == null) return null; const ang = Math.atan2(a.lat - CANYON_C.lat, (a.lon - CANYON_C.lon) * Math.cos(CANYON_C.lat * Math.PI / 180)) * 180 / Math.PI; return ((250 - ang) % 360 + 360) % 360; };
+  const sideGroup = side => side === 'East' ? 'E' : side === 'West' || side === 'North' ? 'W' : null;
   // Check-in point. The rules mention four stations without locations; until they're known, use the Trading Post on the valley floor.
   const CHECKIN = '__checkin';
   const CHECKIN_LOC = { lat: 36.0012, lon: -93.2905, name: 'check-in at the Trading Post' }; // starting line by the Trading Post on the valley floor
@@ -229,6 +237,15 @@
       const goal = plan.goal === 'qualify' ? 'full' : plan.goal;
       const byArea = {};
       for (const r of pool) (byArea[r.area] ||= []).push(r);
+      const GRP = {}; for (const r of pool) if (GRP[r.area] === undefined) GRP[r.area] = sideGroup(r.side);
+      const POS = {}; for (const a of Object.keys(byArea)) POS[a] = GRP[a] ? linePos(AREAS()[a]) : null;
+      const WZ = {}; for (const r of pool) if (r.zn != null) (WZ[r.area] ||= new Set()).add(r.zn);
+      let dir = 0, lastPos = null; // sweep direction along the cliff line; reversing costs extra
+      const maxCross = MAX_CROSS[plan.format] ?? 1;
+      // side state carried over from any kept items
+      let curG = null, crossings = 0; const left = new Set(); let prevA = START_AREA;
+      for (const it of items) { const r = it.rid && byId[it.rid]; if (!r) continue; const g = sideGroup(r.side);
+        if (g && curG && g !== curG) crossings++; if (g) curG = g; if (r.area !== prevA) left.add(prevA); prevA = r.area; }
       // coverage goals: plan a walking tour through every zone first (nearest neighbour + 2-opt), then follow it
       let tour = [];
       if (goal === 'full' || goal === 'golden') {
@@ -245,27 +262,40 @@
           zones.sort((a, b) => walkMin(START_AREA, rep[a], plan) - walkMin(START_AREA, rep[b], plan));
           zones = [...new Set([...sp, ...zones])].slice(0, Math.max(12, sp.length));
         }
-        let cur = area; const left = new Set(zones);
-        while (left.size) { let bz = null, bd = 1e9; for (const z of left) { const d = walkMin(cur, rep[z], plan); if (d < bd) { bd = d; bz = z; } } tour.push(bz); left.delete(bz); cur = rep[bz]; }
-        const cost = tr => tr.reduce((acc, z, i) => acc + walkMin(i ? rep[tr[i - 1]] : area, rep[z], plan), 0);
-        for (let pass = 0, improved = true; improved && pass < 30; pass++) {
-          improved = false;
-          for (let i = 0; i < tour.length - 1; i++) for (let j = i + 1; j < tour.length; j++) {
-            const nt = tour.slice(0, i).concat(tour.slice(i, j + 1).reverse(), tour.slice(j + 1));
-            if (cost(nt) + 0.01 < cost(tour)) { tour = nt; improved = true; }
+        // one crossing: finish every zone on one side, then cross once. Start on the side that's in shade first
+        // (east-facing West side is shady in the afternoon, west-facing East side in the morning), or where we already are.
+        const zg = z => GRP[rep[z]];
+        const first = curG || (dh(plan, t).hour < 10 ? 'E' : 'W'), second = first === 'W' ? 'E' : 'W';
+        const segs = [zones.filter(z => zg(z) !== second), zones.filter(z => zg(z) === second)];
+        let cur = area;
+        for (const seg of segs) {
+          const start = cur, todo = new Set(seg); let part = [];
+          while (todo.size) { let bz = null, bd = 1e9; for (const z of todo) { const d = walkMin(cur, rep[z], plan); if (d < bd) { bd = d; bz = z; } } part.push(bz); todo.delete(bz); cur = rep[bz]; }
+          const cost = tr => tr.reduce((acc, z, i) => acc + walkMin(i ? rep[tr[i - 1]] : start, rep[z], plan), 0);
+          for (let pass = 0, improved = true; improved && pass < 30; pass++) {
+            improved = false;
+            for (let i = 0; i < part.length - 1; i++) for (let j = i + 1; j < part.length; j++) {
+              const nt = part.slice(0, i).concat(part.slice(i, j + 1).reverse(), part.slice(j + 1));
+              if (cost(nt) + 0.01 < cost(part)) { part = nt; improved = true; }
+            }
           }
+          tour.push(...part); if (part.length) cur = rep[part[part.length - 1]];
         }
+        tour.zg = zg;
       }
       const nextZones = () => { const open = tour.filter(z => !WHO.every(k => stats[k].zones.has(z))); return new Set(open.slice(0, 2)); };
       const dayHard = plan.format === '24' && !!plan.dayHard;
       const H = plan.horizon ?? 45; // minutes of climbing used to judge a wall
       let guard = 0;
       while (t < end - 0.08 && guard++ < 500) {
-        { const st = { t, area }; clock.step(st); t = st.t; area = st.area; }
+        { const st = { t, area }; clock.step(st); if (st.area !== area) dir = 0; t = st.t; area = st.area; }
         const rel = (t - plan.start) / F.dur, hr = Math.floor(t - plan.start);
         const pre = { lt: light(plan, t) }; const hh = dh(plan, t).hour;
         const ceil = Object.fromEntries(WHO.map(k => [k, ceilingAt(plan, cl[k], rel)]));
         const nz = nextZones();
+        // may we cross now? Coverage plans cross only once this side's tour zones are done.
+        const openTour = tour.filter(z => !WHO.every(k => stats[k].zones.has(z)));
+        const tourSide = openTour.length ? tour.zg(openTour[0]) : null;
         // value of one route for the team right now (no walking)
         const evalRoute = (r, tt, seen) => {
           const who = [];
@@ -291,8 +321,8 @@
               x = s.laps < F.laps[goal === 'golden' ? 'golden' : 'full'] ? 300 : 0;
               x += (r.pts || 0) * (goal === 'golden' ? 0.6 : 0.2);
               const needZone = plan.format === '24' || goal === 'golden' || s.zones.size < 12;
-              if (r.zn != null && needZone && !s.zones.has(r.zn) && !(seen && seen.has(k + 'z' + r.zn))) x += !tour.length || nz.has(r.zn) ? 2200 : 150;
-              if (r.sp && !s.specials.has(r.n)) x += !tour.length || nz.has(r.zn) ? 2600 : 150;
+              if (r.zn != null && needZone && !s.zones.has(r.zn) && !(seen && seen.has(k + 'z' + r.zn))) x += !tour.length || nz.has(r.zn) ? TUNE.zone : 150;
+              if (r.sp && !s.specials.has(r.n)) x += !tour.length || nz.has(r.zn) ? TUNE.special : 150;
               if (goal === 'golden' && r.type === 'trad' && s.trad < F.trad.golden) x += 220;
             }
             if (plan.side.east && !s.east && r.side === 'East' && !(seen && seen.has(k + 'east'))) x += goal === 'score' ? 300 : 900;
@@ -310,6 +340,18 @@
         for (const [a, rs] of Object.entries(byArea)) {
           const w = walkMin(area, a, plan);
           if (t + (w + 5) / 60 > end) continue;
+          const g = GRP[a]; let pen = 0;
+          if (g && curG && g !== curG) {
+            if (crossings >= maxCross) continue;
+            if (tourSide && tourSide === curG) continue;
+            pen += CROSS_PEN[Math.min(crossings, CROSS_PEN.length - 1)];
+          } else if (tourSide && g && g !== tourSide && !curG) continue;
+          // coverage plans follow the zone tour in order: no skipping ahead to a later zone's wall
+          if (openTour.length && WZ[a] && !WZ[a].has(openTour[0]) && [...WZ[a]].some(z => openTour.includes(z))) continue;
+          if (a !== area) pen += TUNE.move;          // every move costs setup time
+          if (left.has(a)) pen += TUNE.back;
+          if (dir && POS[a] != null && lastPos != null && Math.abs(POS[a] - lastPos) > 2 && Math.sign(POS[a] - lastPos) !== dir) pen += TUNE.reverse;        // going back to a wall already left
+          if (GRP[a] === null && a !== area) pen += TUNE.valley; // detours onto the valley floor
           let sunF = 1;
           if (plan.avoidSun !== false && hh >= 10.5 && hh <= 17.5) { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.55 : st === 'partial' ? 0.8 : 1; }
           const opts = []; for (const r of rs) { const e = evalRoute(r, t + w / 60); if (e && t + (w + e.mins) / 60 <= end) opts.push(e); }
@@ -323,13 +365,16 @@
             val += e2.v; used += e2.mins;
             for (const k of e2.who) { if (o.r.zn != null) seen.add(k + 'z' + o.r.zn); if (o.r.side === 'East') seen.add(k + 'east'); }
           }
-          const rate = val * sunF / ((plan.walkWeight ?? WALKW) * w + used);
+          const rate = val * sunF / ((plan.walkWeight ?? WALKW) * w + used + pen);
           if (rate > bestRate) { bestRate = rate; best = { first: opts[0], w, a }; }
         }
         if (!best) { items.push({ type: 'break', min: 10, label: 'Rest' }); t += 10 / 60; continue; }
         const pick = best.first;
         items.push({ rid: pick.r.id, who: pick.who });
-        t += (best.w + pick.mins) / 60; area = pick.r.area;
+        t += (best.w + pick.mins) / 60;
+        { const g = GRP[pick.r.area]; if (g && curG && g !== curG) { crossings++; dir = 0; } if (g) curG = g; if (pick.r.area !== area) left.add(area);
+          const q = POS[pick.r.area]; if (q != null) { if (lastPos != null && Math.abs(q - lastPos) > 2) dir = Math.sign(q - lastPos); lastPos = q; } }
+        area = pick.r.area;
         for (const k of pick.who) { const s = stats[k]; if ((pick.r.gu ?? -6) > cl[k].os) s.hardHour[hr] = (s.hardHour[hr] || 0) + 1; }
         applyRoute(plan, stats, pick.r, pick.who, t);
       }
@@ -480,6 +525,11 @@
       body.appendChild(d);
     }
 
+    function countCrossings(plan) {
+      let g0 = null, n = 0;
+      for (const it of plan.items) { const r = it.rid && byId[it.rid]; if (!r) continue; const g = sideGroup(r.side); if (g && g0 && g !== g0) n++; if (g) g0 = g; }
+      return n;
+    }
     function renderSummary(body, plan) {
       const tl = normRows(timeline(plan, plan.items)); const F = FORMATS[plan.format];
       const sec = el('section', 'psum');
@@ -498,6 +548,8 @@
       rowOf('Golden Horseshoe', (s, a) => yes(a.golden));
       rowOf('Qualifies', (s, a) => yes(a.qual));
       sec.appendChild(tbl);
+      const cx = countCrossings(plan);
+      sec.appendChild(el('p', 'hint small', `Canyon crossings: ${cx} (limit ${MAX_CROSS[plan.format]}${plan.format === '24' ? ', one is best' : ''}).`));
       const climbing = Math.max(...WHO.map(k => tl.stats[k].laps));
       const rp = el('p', 'pace-calc');
       rp.textContent = `Required pace: ${(climbing / F.dur).toFixed(1)} laps per hour per climber (${climbing} laps over ${F.dur} hours).`;
@@ -648,6 +700,6 @@
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), setWalkWeight: v => { WALKW = v; }, render, mapData, active, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
+    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
   };
 })();
