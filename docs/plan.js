@@ -493,7 +493,9 @@
 
     // ---------- rendering ----------
     let editing = null; // index of item whose actions are open
+    const setupOpen = {}; // plan id -> setup panel open?
     function render() {
+      const y = window.scrollY; requestAnimationFrame(() => window.scrollTo(0, y)); // keep your place while editing
       const body = $('#planBody'); body.textContent = '';
       let plan = active();
       // header: plan picker
@@ -524,7 +526,9 @@
     function field(label, node, hint) { const f = el('div', 'pfield'); f.append(el('span', 'plabel', label), node); if (hint) f.appendChild(el('span', 'hint small', hint)); return f; }
 
     function renderSetup(body, plan) {
-      const d = el('details', 'setup'); d.open = !plan.items.length;
+      // stays as the user left it across re-renders; collapses only after a (re)build
+      const d = el('details', 'setup'); d.open = setupOpen[plan.id] ?? !plan.items.length;
+      d.addEventListener('toggle', () => { setupOpen[plan.id] = d.open; });
       d.appendChild(el('summary', null, `${FORMATS[plan.format].label}, ` + (goalsOf(plan).length ? `optimizing for ${goalText(plan)}` : 'no goals picked yet')));
       const upd = fn => () => { fn(); save(); render(); };
       const name = el('input'); name.type = 'text'; name.value = plan.name; name.onchange = () => { plan.name = name.value.trim() || plan.name; save(); render(); };
@@ -617,7 +621,7 @@
       go.onclick = () => {
         if (plan.items.some(i => i.done) && !confirm('Rebuilding replaces the whole plan, including checked-off routes. Continue?')) return;
         go.disabled = true; go.textContent = 'Building…';
-        setTimeout(() => { build(plan); save(); render(); ctx.onPlanChange(); }, 30);
+        setTimeout(() => { build(plan); setupOpen[plan.id] = false; save(); render(); ctx.onPlanChange(); }, 30);
       };
       const mine = el('button', 'btn', 'Build it myself'); mine.type = 'button';
       mine.onclick = () => {
