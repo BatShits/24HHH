@@ -674,28 +674,35 @@
       let stop = 0, lastArea = null; const groups = []; // groups: one per wall stop, in plan order
       const dragHandle = label => { const b = el('button', 'drag', '⠿'); b.type = 'button'; b.setAttribute('aria-label', label); return b; };
       // drag and drop (pointer events, so it works with touch): routes move one at a time, walls move with all their routes
-      const startDrag = (e, kind, idx, srcLi) => {
+      const startDrag = (e, kind, idx, srcLi, grp) => {
         e.preventDefault(); const h = e.currentTarget; h.setPointerCapture(e.pointerId);
         const moving = kind === 'route' ? [srcLi] : groups[idx].members;
-        const targets = kind === 'route' ? [...list.querySelectorAll('li.p-route')].filter(x => x !== srcLi) : groups.filter((g, j) => j !== idx).map(g => g.el);
+        // a route only moves within its own wall
+        const own = kind === 'route' ? grp.members.filter(x => x.classList.contains('p-route')) : null;
+        const targets = kind === 'route' ? own.filter(x => x !== srcLi) : groups.filter((g, j) => j !== idx).map(g => g.el);
+        const endEl = kind === 'route' ? own[own.length - 1] : null;
+        let lo = -Infinity, hi = Infinity;
+        if (kind === 'route') { const r0 = srcLi.getBoundingClientRect(), a = own[0].getBoundingClientRect(), z = endEl.getBoundingClientRect(); lo = a.top - r0.top; hi = z.bottom - r0.bottom; }
         const y0 = e.clientY + window.scrollY; let lastY = e.clientY, target = undefined, scroller = 0;
         moving.forEach(m => m.classList.add('dragging'));
         const mark = () => {
           const y = lastY; let t = null;
           for (const x of targets) { const rc = x.getBoundingClientRect(); if (y < rc.top + rc.height / 2) { t = x; break; } }
-          if (t !== target) { list.querySelectorAll('.drop-before').forEach(x => x.classList.remove('drop-before')); list.classList.toggle('drop-end', !t); if (t) t.classList.add('drop-before'); target = t; }
-          const dy = lastY + window.scrollY - y0; moving.forEach(m => m.style.transform = `translateY(${dy}px)`);
+          if (t !== target) { list.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after'));
+            if (t) t.classList.add('drop-before'); else if (endEl) endEl.classList.add('drop-after'); else list.classList.add('drop-end');
+            if (t || !endEl) list.classList.toggle('drop-end', !t && !endEl); target = t; }
+          const dy = Math.max(lo, Math.min(hi, lastY + window.scrollY - y0)); moving.forEach(m => m.style.transform = `translateY(${dy}px)`);
         };
         const onMove = ev => { lastY = ev.clientY; mark(); };
         scroller = setInterval(() => { const edge = 70, H = window.innerHeight; const v = lastY < edge + 40 ? -14 : lastY > H - edge - 60 ? 14 : 0; if (v) { window.scrollBy(0, v); mark(); } }, 30);
         const onUp = () => {
           clearInterval(scroller); h.removeEventListener('pointermove', onMove); h.removeEventListener('pointerup', onUp); h.removeEventListener('pointercancel', onUp);
           moving.forEach(m => { m.classList.remove('dragging'); m.style.transform = ''; });
-          list.querySelectorAll('.drop-before').forEach(x => x.classList.remove('drop-before')); list.classList.remove('drop-end');
+          list.querySelectorAll('.drop-before,.drop-after').forEach(x => x.classList.remove('drop-before', 'drop-after')); list.classList.remove('drop-end');
           if (target === undefined) return;
           const items = plan.items;
           if (kind === 'route') {
-            const to = target ? +target.dataset.i : items.length; if (to === idx || to === idx + 1) return;
+            const to = target ? +target.dataset.i : +endEl.dataset.i + 1; if (to === idx || to === idx + 1) return;
             const [it] = items.splice(idx, 1); items.splice(to > idx ? to - 1 : to, 0, it);
           } else {
             const g = groups[idx], s0 = g.start, s1 = idx + 1 < groups.length ? groups[idx + 1].start : items.length;
@@ -736,7 +743,7 @@
         if (r.type === 'trad') tags.appendChild(el('span', 'tag', 'Trad'));
         main.appendChild(tags);
         main.onclick = () => { editing = editing === row.i ? null : row.i; render(); };
-        const hd = dragHandle('Drag to move ' + r.name); hd.addEventListener('pointerdown', e => startDrag(e, 'route', row.i, li));
+        const hd = dragHandle('Drag to reorder ' + r.name + ' within ' + r.area); const Gr = groups[groups.length - 1]; hd.addEventListener('pointerdown', e => startDrag(e, 'route', row.i, li, Gr));
         li.append(cb, main, hd); groups[groups.length - 1].members.push(li);
         if (editing === row.i) {
           const a = el('div', 'p-actions');
