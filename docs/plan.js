@@ -11,9 +11,9 @@
     eli: { label: 'Elite (5.12b and up)', max: 99 },
   };
   const GOALS = {
-    score: 'Highest score',
-    laps: 'Most routes',
-    height: 'Most height',
+    laps: 'Laps (target count)',
+    score: 'Score (target points)',
+    height: 'Height (target feet)',
     full: 'Full Horseshoe',
     golden: 'Golden Horseshoe',
     qualify: 'Qualify for next year (easiest path)',
@@ -26,12 +26,13 @@
       checkins: [], meals: [{ at: 12, min: 20, label: 'Lunch' }, { at: 16, min: 10, label: 'Snack' }] },
   };
   const INTENSITY = {
-    conservative: { label: 'Conservative', ceil: [0, -1, -2, -1], hard: 1 },
-    standard: { label: 'Standard', ceil: [1, 0, -1, 0], hard: 2 },
-    aggressive: { label: 'Aggressive', ceil: [2, 1, 0, 1], hard: 3 },
+    conservative: { label: "Don't Hurt Me", ceil: [0, -1, -2, -1], hard: 1 },
+    standard: { label: 'Bring it On!', ceil: [1, 0, -1, 0], hard: 2 },
+    aggressive: { label: 'I am Death Incarnate!!', ceil: [2, 1, 0, 1], hard: 3 },
   };
-  const PACE = { slow: { label: 'Slower than 2026', f: 1.15 }, typical: { label: 'Like 2026', f: 1.0 }, fast: { label: 'Faster than 2026', f: 0.88 } };
   const WHO = ['me', 'partner'];
+  const TARGET_DEFAULT = { 24: { laps: 100, score: 12000, height: 5280 }, 12: { laps: 65, score: 8000, height: 3000 } };
+  const UNIT = { laps: 'laps', score: 'points', height: 'feet' };
   let WALKW = 1.5;
   const START_AREA = 'The Park'; // starting line by the Trading Post on the valley floor
 
@@ -107,7 +108,7 @@
       if (r.type === 'trad') m = m * 1.35 + 3;
       const lt = pre ? pre.lt : light(plan, abs); if (lt !== 'day') m *= 1.15;
       const hrs = abs - plan.start; if (hrs > 12) m *= 1.1; if (hrs > 18) m *= 1.1;
-      return m * (PACE[plan.pace] || PACE.typical).f;
+      return m * (plan.paceF || 1);
     }
     function walkMin(a, b) {
       if (!a || a === b) return 0;
@@ -299,11 +300,52 @@
       plan.items = items; plan.built = new Date().toISOString();
     }
 
+    // ---------- targets and required pace ----------
+    function targetOf(plan) {
+      if (!UNIT[plan.goal]) return null;
+      const t = plan.targets && plan.targets[plan.goal];
+      return t > 0 ? t : TARGET_DEFAULT[plan.format][plan.goal];
+    }
+    function lapTarget(plan) {
+      const F = FORMATS[plan.format];
+      if (plan.goal === 'laps') return targetOf(plan);
+      if (plan.goal === 'full' || plan.goal === 'qualify') return F.laps.full;
+      if (plan.goal === 'golden') return F.laps.golden;
+      return null; // score / height: known after the plan is built
+    }
+    function meets(plan) {
+      const tl = timeline(plan, plan.items); const T = targetOf(plan);
+      return WHO.every(k => {
+        const s = tl.stats[k], a = achievements(plan, s);
+        switch (plan.goal) {
+          case 'laps': return s.laps >= T;
+          case 'score': return s.pts + bonusPts(plan, s, a) >= T;
+          case 'height': return s.ft >= T;
+          case 'full': return a.full;
+          case 'golden': return a.golden;
+          default: return a.qual;
+        }
+      });
+    }
+    // Build the plan at the slowest steady pace that still reaches the target.
+    // paceF multiplies every lead's time: below 1 means faster than the base model, above 1 slower.
+    function build(plan) {
+      let lo = 0.3, hi = 3, bestItems = null;
+      plan.paceF = lo; optimize(plan, 0);
+      if (!meets(plan)) { plan.unreachable = true; return; }
+      plan.unreachable = false; bestItems = plan.items;
+      for (let i = 0; i < 8; i++) {
+        const mid = (lo + hi) / 2; plan.paceF = mid; optimize(plan, 0);
+        if (meets(plan)) { lo = mid; bestItems = plan.items; } else hi = mid;
+      }
+      plan.paceF = lo; plan.items = bestItems;
+    }
+
     // ---------- plan CRUD ----------
     function newPlan(fmt) {
       fmt = fmt || '24';
       const p = { id: 'p' + Date.now().toString(36), name: (fmt === '24' ? '24-hour' : '12-hour') + ' plan', format: fmt, date: defaultDate(fmt), start: FORMATS[fmt].startHour,
-        goal: 'full', side: { east: true, over60: false, soft: true }, divs: {}, intensity: 'standard', pace: 'typical', avoidSun: true, meals: true, reach: true, items: [] };
+        goal: 'full', targets: {}, side: { east: true, over60: false, soft: true }, divs: {}, intensity: 'standard', avoidSun: true, meals: true, reach: true, items: [] };
       state.plans.push(p); state.active = p.id; save(); return p;
     }
 
@@ -340,7 +382,7 @@
 
     function renderSetup(body, plan) {
       const d = el('details', 'setup'); d.open = !plan.items.length;
-      d.appendChild(el('summary', null, `${FORMATS[plan.format].label}, goal: ${GOALS[plan.goal]}`));
+      d.appendChild(el('summary', null, `${FORMATS[plan.format].label}, optimizing for ${GOALS[plan.goal].replace(/ \(.*\)/, '').toLowerCase()}${targetOf(plan) ? ' ' + targetOf(plan).toLocaleString() : ''}`));
       const upd = fn => () => { fn(); save(); render(); };
       const name = el('input'); name.type = 'text'; name.value = plan.name; name.onchange = () => { plan.name = name.value.trim() || plan.name; save(); render(); };
       d.appendChild(field('Plan name', name));
@@ -349,10 +391,19 @@
       d.appendChild(field('Start', date, `${Sun.fmt(plan.start)} start, ${FORMATS[plan.format].dur} hours. Defaults to the last full weekend of September.`));
       const g = el('select'); for (const [k, v] of Object.entries(GOALS)) g.add(new Option(v, k)); g.value = plan.goal; g.onchange = () => { plan.goal = g.value; save(); render(); };
       const F = FORMATS[plan.format];
-      const gHint = { score: 'Points per minute, favoring soft, shaded, high-point routes.', laps: 'Fastest routes you can lead cleanly.', height: F.ft ? `Feet per minute. ${F.ft} ft also qualifies for next year.` : 'Feet per minute.',
+      const gHint = { score: `Favors soft, shaded, high-point routes. ${F.pts.qualify.toLocaleString()} points (bonuses included) qualifies for next year.`, laps: `Fastest routes you can lead cleanly. ${F.laps.qualify} laps qualifies for next year.`, height: F.ft ? `Favors tall routes. ${F.ft.toLocaleString()} ft also qualifies for next year.` : 'Favors tall routes.',
         full: `${F.laps.full} routes, ${plan.format === '24' ? 'all 24' : '12'} zones, Hickadelic Jazzgrass and Orange Crush.`, golden: `${F.laps.golden} routes, ${F.trad.golden} trad, ${F.pts.golden.toLocaleString()} points and Full Horseshoe.`,
         qualify: 'Plans for the Full Horseshoe, the cheapest qualifying path for most teams.' }[plan.goal];
-      d.appendChild(field('Main goal', g, gHint));
+      d.appendChild(field('Optimize for', g, gHint));
+      if (UNIT[plan.goal]) {
+        const ti = el('input'); ti.type = 'number'; ti.inputMode = 'numeric'; ti.min = 1; ti.step = plan.goal === 'laps' ? 1 : 100; ti.value = targetOf(plan);
+        ti.onchange = () => { plan.targets = plan.targets || {}; plan.targets[plan.goal] = Math.max(1, Math.round(+ti.value || 0)); save(); render(); };
+        const row = el('div', 'target-row'); row.append(ti, el('span', null, UNIT[plan.goal] + ' per climber'));
+        d.appendChild(field('Target', row));
+      }
+      const L = lapTarget(plan);
+      const paceTxt = L ? `${(L / F.dur).toFixed(1)} laps per hour per climber (${L} laps over ${F.dur} hours).` : 'Calculated once the plan is built, from the laps it takes to reach your target.';
+      d.appendChild(field('Required pace', el('p', 'pace-calc', paceTxt), L ? 'Average over the whole event, including walking, check-ins and breaks.' : null));
       d.appendChild(field('Also aim for', chipRow([['east', 'East Side bonus'], ['over60', 'Routes over 60 ft'], ['soft', 'Prefer soft-for-grade']], plan.side, v => upd(() => { plan.side[v] = !plan.side[v]; })(), false)));
       // divisions
       const dv = el('div', 'divs');
@@ -365,14 +416,17 @@
       }
       d.appendChild(dv);
       d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; })()),
-        { conservative: 'Stays at or below onsight, one harder lap per hour per climber.', standard: 'Up to one grade over onsight early, easing off overnight; two harder laps per hour.', aggressive: 'Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
-      d.appendChild(field('Pace', chipRow(Object.entries(PACE).map(([k, v]) => [k, v.label]), plan.pace, v => upd(() => { plan.pace = v; })())));
+        { conservative: 'Stays at or below onsight; one harder lap per hour per climber.', standard: 'Up to one grade over onsight early, easing off overnight; two harder laps per hour.', aggressive: 'Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
       d.appendChild(field('Options', chipRow([['avoidSun', 'Avoid direct sun midday'], ['meals', 'Meal breaks'], ['reach', 'Skip routes too reachy']], { avoidSun: plan.avoidSun !== false, meals: plan.meals !== false, reach: plan.reach !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
       const missing = WHO.filter(k => !(profiles[k] || {}).onsight);
       if (missing.length) d.appendChild(el('p', 'warn', 'Add onsight and project grades in the You tab for ' + missing.map(k => k === 'me' ? 'you' : 'your partner').join(' and ') + '. Until then the planner assumes a 5.9 onsight.'));
       const go = el('button', 'btn primary', plan.items.length ? 'Rebuild recommended plan' : 'Build recommended plan'); go.type = 'button';
-      go.onclick = () => { if (plan.items.some(i => i.done) && !confirm('Rebuilding replaces the whole plan, including checked-off routes. Continue?')) return; optimize(plan, 0); save(); render(); ctx.onPlanChange(); };
+      go.onclick = () => {
+        if (plan.items.some(i => i.done) && !confirm('Rebuilding replaces the whole plan, including checked-off routes. Continue?')) return;
+        go.disabled = true; go.textContent = 'Building…';
+        setTimeout(() => { build(plan); save(); render(); ctx.onPlanChange(); }, 30);
+      };
       d.appendChild(go);
       body.appendChild(d);
     }
@@ -395,6 +449,11 @@
       rowOf('Golden Horseshoe', (s, a) => yes(a.golden));
       rowOf('Qualifies', (s, a) => yes(a.qual));
       sec.appendChild(tbl);
+      const climbing = Math.max(...WHO.map(k => tl.stats[k].laps));
+      const rp = el('p', 'pace-calc');
+      rp.textContent = `Required pace: ${(climbing / F.dur).toFixed(1)} laps per hour per climber (${climbing} laps over ${F.dur} hours).`;
+      sec.appendChild(rp);
+      if (plan.unreachable) sec.appendChild(el('p', 'warn', `This plan can't reach ${targetOf(plan) ? targetOf(plan).toLocaleString() + ' ' + UNIT[plan.goal] : GOALS[plan.goal]} for both climbers even at a very fast pace. Try a lower target, a harder push setting, or a higher division.`));
       sec.appendChild(el('p', 'hint small', `Plan ends ${fmtAbs(plan, tl.t, true)}; event ends ${fmtAbs(plan, plan.start + F.dur, true)}. Zone numbers for 10 of the 24 zones are a best guess until the organizers confirm the wall list.`));
       // pace
       const done = plan.items.map((it, i) => ({ it, i })).filter(x => x.it.done);
@@ -540,6 +599,6 @@
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { _opt: optimize, _tl: (p) => timeline(p, p.items), setWalkWeight: v => { WALKW = v; }, render, mapData, active, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(p); save(); } } };
+    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), setWalkWeight: v => { WALKW = v; }, render, mapData, active, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(p); save(); } } };
   };
 })();
