@@ -237,7 +237,9 @@
       const cl = Object.fromEntries(WHO.map(k => [k, climber(plan, k)]));
       const I = INTENSITY[plan.intensity] || INTENSITY.standard;
       const pool = comp().filter(r => r.gu != null || r.g === 'Easy 5th');
-      const goal = plan.goal === 'qualify' ? 'full' : plan.goal;
+      const gls = goalsOf(plan).map(g => g === 'qualify' ? 'full' : g);
+      const goal = gls.includes('golden') ? 'golden' : gls.includes('full') ? 'full' : gls[0]; // the coverage goal (if any) drives the zone tour
+      const numGoals = gls.filter(g => UNIT[g]).map(g => [g, targetOf(plan, g)]);
       const byArea = {};
       for (const r of pool) (byArea[r.area] ||= []).push(r);
       const GRP = {}; for (const r of pool) if (GRP[r.area] === undefined) GRP[r.area] = sideGroup(r.side);
@@ -327,19 +329,21 @@
           let mins = 1; for (const k of who) mins += leadMin(plan, r, cl[k], tt, pre);
           let v = 0;
           for (const k of who) {
-            const s = stats[k]; let x;
-            if (goal === 'score') x = r.pts || 0;
-            else if (goal === 'laps') x = 120;
-            else if (goal === 'height') x = (r.ht || 40) * 3;
-            else {
-              x = s.laps < F.laps[goal === 'golden' ? 'golden' : 'full'] ? 300 : 0;
+            const s = stats[k]; let x = 0;
+            // numeric goals add up; one that's already met for this climber counts for much less
+            for (const [g, T] of numGoals) {
+              const met = g === 'laps' ? s.laps >= T : g === 'height' ? s.ft >= T : s.pts >= T;
+              x += (g === 'score' ? (r.pts || 0) : g === 'laps' ? 120 : (r.ht || 40) * 3) * (met ? 0.2 : 1);
+            }
+            if (goal === 'full' || goal === 'golden') {
+              x += s.laps < F.laps[goal === 'golden' ? 'golden' : 'full'] ? 300 : 0;
               x += (r.pts || 0) * (goal === 'golden' ? 0.6 : 0.2);
               const needZone = plan.format === '24' || goal === 'golden' || s.zones.size < 12;
               if (r.zn != null && needZone && !s.zones.has(r.zn) && !(seen && seen.has(k + 'z' + r.zn))) x += !tour.length || nz.has(r.zn) ? TUNE.zone : 150;
               if (r.sp && !s.specials.has(r.sp)) x += !tour.length || nz.has(r.zn) || s.zones.has(r.zn) ? TUNE.special : 150; // don't leave a special's wall without it
               if (goal === 'golden' && r.type === 'trad' && s.trad < F.trad.golden) x += 220;
             }
-            if (plan.side.east && !s.east && r.side === 'East' && !(seen && seen.has(k + 'east'))) x += goal === 'score' ? 300 : 900;
+            if (plan.side.east && !s.east && r.side === 'East' && !(seen && seen.has(k + 'east'))) x += gls.length === 1 && goal === 'score' ? 300 : 900;
             if (plan.side.over60 && (r.ht || 0) >= 60) x *= 1.3;
             if (plan.side.soft && r.v && r.v.includes('soft')) x *= 1.15;
             if (r.v && r.v.includes('stiff')) x *= 0.85;
@@ -422,32 +426,37 @@
     }
 
     // ---------- targets and required pace ----------
-    function targetOf(plan) {
-      if (!UNIT[plan.goal]) return null;
-      const t = plan.targets && plan.targets[plan.goal];
-      return t > 0 ? t : TARGET_DEFAULT[plan.format][plan.goal];
+    // a plan can chase several goals at once (e.g. 100 laps AND 5,280 ft); all of them must be met
+    const goalsOf = plan => (Array.isArray(plan.goals) && plan.goals.length ? plan.goals : [plan.goal || 'full']).filter(g => GOALS[g]);
+    function targetOf(plan, g = goalsOf(plan)[0]) {
+      if (!UNIT[g]) return null;
+      const t = plan.targets && plan.targets[g];
+      return t > 0 ? t : TARGET_DEFAULT[plan.format][g];
     }
     function lapTarget(plan) {
-      const F = FORMATS[plan.format];
-      if (plan.goal === 'laps') return targetOf(plan);
-      if (plan.goal === 'full' || plan.goal === 'qualify') return F.laps.full;
-      if (plan.goal === 'golden') return F.laps.golden;
-      return null; // score / height: known after the plan is built
+      const F = FORMATS[plan.format]; let L = null;
+      for (const g of goalsOf(plan)) {
+        const n = g === 'laps' ? targetOf(plan, g) : g === 'full' || g === 'qualify' ? F.laps.full : g === 'golden' ? F.laps.golden : null;
+        if (n != null) L = Math.max(L || 0, n);
+      }
+      return L; // score / height only: known after the plan is built
+    }
+    function goalMet(plan, g, s, a) {
+      const T = targetOf(plan, g);
+      switch (g) {
+        case 'laps': return s.laps >= T;
+        case 'score': return s.pts + bonusPts(plan, s, a) >= T;
+        case 'height': return s.ft >= T;
+        case 'full': return a.full;
+        case 'golden': return a.golden;
+        default: return a.qual;
+      }
     }
     function meets(plan) {
-      const tl = timeline(plan, plan.items); const T = targetOf(plan);
-      return WHO.every(k => {
-        const s = tl.stats[k], a = achievements(plan, s);
-        switch (plan.goal) {
-          case 'laps': return s.laps >= T;
-          case 'score': return s.pts + bonusPts(plan, s, a) >= T;
-          case 'height': return s.ft >= T;
-          case 'full': return a.full;
-          case 'golden': return a.golden;
-          default: return a.qual;
-        }
-      });
+      const tl = timeline(plan, plan.items);
+      return WHO.every(k => { const s = tl.stats[k], a = achievements(plan, s); return goalsOf(plan).every(g => goalMet(plan, g, s, a)); });
     }
+    const goalText = plan => goalsOf(plan).map(g => GOALS[g].replace(/ \(.*\)/, '').toLowerCase() + (targetOf(plan, g) ? ' ' + targetOf(plan, g).toLocaleString() : '')).join(' + ');
     // Build the plan at the slowest steady pace that still reaches the target.
     // paceF multiplies every lead's time: below 1 means faster than the base model, above 1 slower.
     function build(plan) {
@@ -503,25 +512,31 @@
 
     function renderSetup(body, plan) {
       const d = el('details', 'setup'); d.open = !plan.items.length;
-      d.appendChild(el('summary', null, `${FORMATS[plan.format].label}, optimizing for ${GOALS[plan.goal].replace(/ \(.*\)/, '').toLowerCase()}${targetOf(plan) ? ' ' + targetOf(plan).toLocaleString() : ''}`));
+      d.appendChild(el('summary', null, `${FORMATS[plan.format].label}, optimizing for ${goalText(plan)}`));
       const upd = fn => () => { fn(); save(); render(); };
       const name = el('input'); name.type = 'text'; name.value = plan.name; name.onchange = () => { plan.name = name.value.trim() || plan.name; save(); render(); };
       d.appendChild(field('Plan name', name));
       d.appendChild(field('Event', chipRow([['24', '24-hour'], ['12', '12-hour']], plan.format, v => upd(() => { plan.format = v; plan.date = defaultDate(v); plan.start = FORMATS[v].startHour; plan.items = []; })())));
       const date = el('input'); date.type = 'date'; date.value = plan.date; date.onchange = () => { if (date.value) { plan.date = date.value; save(); render(); } };
       d.appendChild(field('Start date', date, `Runs ${[plan.start, plan.start + FORMATS[plan.format].dur].map(h => { const x = dh(plan, h); return x.wd + ' ' + Sun.fmt(x.hour); }).join(' to ')} (fixed by the rules). Defaults to the last full weekend of September.`));
-      const g = el('select'); for (const [k, v] of Object.entries(GOALS)) g.add(new Option(v, k)); g.value = plan.goal; g.onchange = () => { plan.goal = g.value; save(); render(); };
+      const sel = goalsOf(plan);
+      const g = chipRow(Object.entries(GOALS).map(([k, v]) => [k, v.replace(/ \(.*\)/, '')]), Object.fromEntries(sel.map(k => [k, true])), v => upd(() => {
+        let n = sel.includes(v) ? sel.filter(x => x !== v) : [...sel, v];
+        if (!n.length) n = [v]; // keep at least one goal
+        plan.goals = n; plan.goal = n[0];
+      })(), false);
       const F = FORMATS[plan.format];
       const gHint = { score: `Favors soft, shaded, high-point routes. ${F.pts.qualify.toLocaleString()} points (bonuses included) qualifies for next year.`, laps: `Fastest routes you can lead cleanly. ${F.laps.qualify} laps qualifies for next year.`, height: F.ft ? `Favors tall routes. ${F.ft.toLocaleString()} ft also qualifies for next year.` : 'Favors tall routes.',
         full: `${F.laps.full} routes, ${plan.format === '24' ? 'all 24' : '12'} zones, and one end route at each end of the horseshoe (west: Hickadelic Jazzgrass, Meatcake, Catholic Boat, Elephant Ear or Wuwei; east: Orange Crush, Montezuma's Toe or Revenge, Purple Nehi or Supersoul Sureshot).`, golden: `${F.laps.golden} routes, ${F.trad.golden} trad, ${F.pts.golden.toLocaleString()} points and Full Horseshoe.`,
-        qualify: 'Plans for the Full Horseshoe, the cheapest qualifying path for most teams.' }[plan.goal];
-      d.appendChild(field('Optimize for', g, gHint));
-      if (UNIT[plan.goal]) {
-        const ti = el('input'); ti.type = 'number'; ti.inputMode = 'numeric'; ti.min = 1; ti.step = plan.goal === 'laps' ? 1 : 100; ti.value = targetOf(plan);
-        ti.onchange = () => { plan.targets = plan.targets || {}; plan.targets[plan.goal] = Math.max(1, Math.round(+ti.value || 0)); save(); render(); };
-        const row = el('div', 'target-row'); row.append(ti, el('span', null, UNIT[plan.goal] + ' per climber'));
-        d.appendChild(field('Target', row));
+        qualify: 'Plans for the Full Horseshoe, the cheapest qualifying path for most teams.' };
+      d.appendChild(field('Optimize for', g, (sel.length > 1 ? 'Pick as many as you like; the plan has to hit all of them. ' : 'Pick one or more. ') + sel.map(k => gHint[k]).join(' ')));
+      const tbox = el('div', 'targets');
+      for (const k of sel.filter(k => UNIT[k])) {
+        const ti = el('input'); ti.type = 'number'; ti.inputMode = 'numeric'; ti.min = 1; ti.step = k === 'laps' ? 1 : 100; ti.value = targetOf(plan, k); ti.setAttribute('aria-label', GOALS[k]);
+        ti.onchange = () => { plan.targets = plan.targets || {}; plan.targets[k] = Math.max(1, Math.round(+ti.value || 0)); save(); render(); };
+        const row = el('div', 'target-row'); row.append(ti, el('span', null, UNIT[k] + ' per climber')); tbox.appendChild(row);
       }
+      if (tbox.childNodes.length) d.appendChild(field(tbox.childNodes.length > 1 ? 'Targets' : 'Target', tbox));
       const L = lapTarget(plan);
       const paceTxt = L ? `${(L / F.dur).toFixed(1)} laps per hour per climber (${L} laps over ${F.dur} hours).` : 'Calculated once the plan is built, from the laps it takes to reach your target.';
       d.appendChild(field('Required pace', el('p', 'pace-calc', paceTxt), L ? 'Average over the whole event, including walking, check-ins and breaks.' : null));
@@ -688,7 +703,7 @@
       const rp = el('p', 'pace-calc');
       rp.textContent = `Required pace: ${(climbing / F.dur).toFixed(1)} laps per hour per climber (${climbing} laps over ${F.dur} hours).`;
       sec.appendChild(rp);
-      if (plan.unreachable) sec.appendChild(el('p', 'warn', `This plan can't reach ${targetOf(plan) ? targetOf(plan).toLocaleString() + ' ' + UNIT[plan.goal] : GOALS[plan.goal]} for both climbers even at a very fast pace. Try a lower target, a harder push setting, or a higher division.`));
+      if (plan.unreachable) sec.appendChild(el('p', 'warn', `This plan can't reach ${goalText(plan)} for both climbers even at a very fast pace. Try a lower target, a harder push setting, or a higher division.`));
       sec.appendChild(el('p', 'hint small', `Plan ends ${fmtAbs(plan, tl.t, true)}; event ends ${fmtAbs(plan, plan.start + F.dur, true)}.${tl.t > plan.start + F.dur + 0.01 ? ' The plan runs past the end, so trim a route or two.' : ''}`));
       // pace
       const done = plan.items.map((it, i) => ({ it, i })).filter(x => x.it.done);
