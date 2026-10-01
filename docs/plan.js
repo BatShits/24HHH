@@ -436,7 +436,7 @@
 
     // ---------- targets and required pace ----------
     // a plan can chase several goals at once (e.g. 100 laps AND 5,280 ft); all of them must be met
-    const goalsOf = plan => (Array.isArray(plan.goals) && plan.goals.length ? plan.goals : [plan.goal || 'full']).filter(g => GOALS[g]);
+    const goalsOf = plan => (Array.isArray(plan.goals) ? plan.goals : plan.goal ? [plan.goal] : []).filter(g => GOALS[g]); // new plans start with no goals
     function targetOf(plan, g = goalsOf(plan)[0]) {
       if (!UNIT[g]) return null;
       const t = plan.targets && plan.targets[g];
@@ -486,7 +486,7 @@
     function newPlan(fmt) {
       fmt = fmt || '24';
       const p = { id: 'p' + Date.now().toString(36), name: (fmt === '24' ? '24-hour' : '12-hour') + ' plan', format: fmt, date: defaultDate(fmt), start: FORMATS[fmt].startHour,
-        goal: 'full', targets: {}, side: { east: true, over60: false, soft: true }, divs: {}, intensity: 'standard', avoidSun: true, reach: true, items: [] };
+        goals: [], targets: {}, side: { east: true, over60: false, soft: true }, divs: {}, intensity: 'standard', avoidSun: true, reach: true, items: [] };
       state.plans.push(p); state.active = p.id; save(); return p;
     }
 
@@ -524,7 +524,7 @@
 
     function renderSetup(body, plan) {
       const d = el('details', 'setup'); d.open = !plan.items.length;
-      d.appendChild(el('summary', null, `${FORMATS[plan.format].label}, optimizing for ${goalText(plan)}`));
+      d.appendChild(el('summary', null, `${FORMATS[plan.format].label}, ` + (goalsOf(plan).length ? `optimizing for ${goalText(plan)}` : 'no goals picked yet')));
       const upd = fn => () => { fn(); save(); render(); };
       const name = el('input'); name.type = 'text'; name.value = plan.name; name.onchange = () => { plan.name = name.value.trim() || plan.name; save(); render(); };
       d.appendChild(field('Plan name', name));
@@ -534,14 +534,13 @@
       const sel = goalsOf(plan);
       const g = chipRow(Object.entries(GOALS).map(([k, v]) => [k, v.replace(/ \(.*\)/, '')]), Object.fromEntries(sel.map(k => [k, true])), v => upd(() => {
         let n = sel.includes(v) ? sel.filter(x => x !== v) : [...sel, v];
-        if (!n.length) n = [v]; // keep at least one goal
         plan.goals = n; plan.goal = n[0];
       })(), false);
       const F = FORMATS[plan.format];
       const gHint = { score: `Favors soft, shaded, high-point routes. ${F.pts.qualify.toLocaleString()} points (bonuses included) qualifies for next year.`, laps: `Fastest routes you can lead cleanly. ${F.laps.qualify} laps qualifies for next year.`, trad: `Trad leads count toward this. ${F.trad.qualify} trad laps qualifies for next year.`, height: F.ft ? `Favors tall routes. ${F.ft.toLocaleString()} ft also qualifies for next year.` : 'Favors tall routes.',
         full: `${F.laps.full} routes, ${plan.format === '24' ? 'all 24' : '12'} zones, and one end route at each end of the horseshoe (west: Hickadelic Jazzgrass, Meatcake, Catholic Boat, Elephant Ear or Wuwei; east: Orange Crush, Montezuma's Toe or Revenge, Purple Nehi or Supersoul Sureshot).`, golden: `${F.laps.golden} routes, ${F.trad.golden} trad, ${F.pts.golden.toLocaleString()} points and Full Horseshoe.`,
         qualify: 'Plans for the Full Horseshoe, the cheapest qualifying path for most teams.' };
-      d.appendChild(field('Optimize for', g, (sel.length > 1 ? 'Pick as many as you like; the plan has to hit all of them. ' : 'Pick one or more. ') + sel.map(k => gHint[k]).join(' ')));
+      d.appendChild(field('Optimize for', g, (sel.length > 1 ? 'Pick as many as you like; the plan has to hit all of them. ' : sel.length ? 'Pick one or more. ' : 'Nothing picked yet. Pick one or more goals to get a recommended plan, or build it yourself below.') + sel.map(k => gHint[k]).join(' ')));
       const tbox = el('div', 'targets');
       for (const k of sel.filter(k => UNIT[k])) {
         const ti = el('input'); ti.type = 'number'; ti.inputMode = 'numeric'; ti.min = 1; ti.step = k === 'laps' || k === 'trad' ? 1 : 100; ti.value = targetOf(plan, k); ti.setAttribute('aria-label', GOALS[k]);
@@ -612,6 +611,7 @@
       const missing = WHO.filter(k => !(profiles[k] || {}).onsight);
       if (missing.length) d.appendChild(el('p', 'warn', 'Add onsight and project grades in the You tab for ' + missing.map(k => k === 'me' ? 'you' : 'your partner').join(' and ') + '. Until then the planner assumes a 5.9 onsight.'));
       const go = el('button', 'btn primary', plan.items.length ? 'Rebuild recommended plan' : 'Build recommended plan'); go.type = 'button';
+      if (!goalsOf(plan).length) { go.disabled = true; go.title = 'Pick at least one goal first'; }
       go.onclick = () => {
         if (plan.items.some(i => i.done) && !confirm('Rebuilding replaces the whole plan, including checked-off routes. Continue?')) return;
         go.disabled = true; go.textContent = 'Building…';
