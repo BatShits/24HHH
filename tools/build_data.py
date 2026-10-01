@@ -5,7 +5,7 @@ import csv, json, re, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'data-src'); OUT = os.path.join(ROOT, 'docs', 'data')
 sys.path.insert(0, SRC)
-from aspects import MP_AREA, SHADY, MP_GPS
+from aspects import MP_AREA, SHADY, MP_GPS, MP_GPS_EST
 
 def units(g):
     m = re.match(r'^5\.(\d+)([abcd](/[abcd])?|[+-])?', g or '')
@@ -45,8 +45,8 @@ for i, r in enumerate(csv.DictReader(open(os.path.join(SRC, 'hcr_routes_master.c
     }.items() if v not in (None, '')})
 areas = {}
 for name, (asp, basis, note) in MP_AREA.items():
-    g = MP_GPS.get(name)
-    areas[name] = {'aspect': asp, 'basis': basis, 'note': note, 'shady': name in SHADY,
+    g = MP_GPS.get(name) or MP_GPS_EST.get(name)
+    areas[name] = {'aspect': asp, 'basis': basis, 'note': note, 'shady': name in SHADY, 'est': name in MP_GPS_EST,
                    'lat': g[0] if g else None, 'lon': g[1] if g else None,
                    'count': sum(1 for x in routes if x.get('area') == name)}
 os.makedirs(OUT, exist_ok=True)

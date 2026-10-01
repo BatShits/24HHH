@@ -65,3 +65,11 @@ MP_GPS = {  # area GPS from MP; entries equal to the ranch root (36.0118,-93.292
  "Rosie's Cantina Area":(36.00644,-93.28695),'Nipple Stimulation Alcove':(36.00674,-93.28721),'Super Slab':(36.00712,-93.28802),
  'Jungle Cliff':(36.00815,-93.28731),'The Park':(36.00179,-93.29125),'The Carrion Cube':(36.00483,-93.29054),
 }
+
+# Mountain Project lists only the ranch's root coordinates for these walls.
+# Estimated from the comp's walking order between neighbouring walls; refine with GPS on a scouting trip.
+MP_GPS_EST = {
+ 'Mullet Buttress': (36.0102, -93.2878),     # between Goat Cave and Land of the Lost
+ 'Land of the Lost': (36.0092, -93.2876),    # between Mullet Buttress and New Meadow
+ 'Ren and Stimpy': (36.00365, -93.2957),     # between Street Fighter Wall and Prophecy Wall
+}

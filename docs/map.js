@@ -15,7 +15,11 @@
   const url = (layer, z, x, y) => LAYERS[layer].replace('{z}', z).replace('{x}', x).replace('{y}', y);
 
   function create(el, tilesEl, marksEl, opts) {
-    const st = { lat: opts.lat, lon: opts.lon, zoom: opts.zoom, layer: opts.layer || 'topo', marks: [], onMove: opts.onMove || (() => {}) };
+    const st = { lat: opts.lat, lon: opts.lon, zoom: opts.zoom, layer: opts.layer || 'topo', marks: [], lines: [], onMove: opts.onMove || (() => {}) };
+    const SVGNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(SVGNS, 'svg'); svg.setAttribute('class', 'map-lines');
+    const markBox = document.createElement('div'); markBox.className = 'map-markbox';
+    marksEl.append(svg, markBox);
     const tileImgs = new Map();
 
     function size() { return { w: el.clientWidth, h: el.clientHeight }; }
@@ -48,10 +52,14 @@
         const p = project(m.lat, m.lon);
         m.el.style.transform = `translate(${p.x}px,${p.y}px)`;
       }
+      svg.setAttribute('width', w); svg.setAttribute('height', h);
+      for (const l of st.lines) {
+        l.el.setAttribute('d', l.pts.map((q, i) => { const p = project(q[0], q[1]); return (i ? 'L' : 'M') + p.x.toFixed(1) + ' ' + p.y.toFixed(1); }).join(''));
+      }
     }
     function setMarks(list) {
-      marksEl.textContent = ''; st.marks = list;
-      for (const m of list) marksEl.appendChild(m.el);
+      markBox.textContent = ''; st.marks = list;
+      for (const m of list) markBox.appendChild(m.el);
       render();
     }
     function zoomAt(nz, px, py) {
@@ -108,6 +116,12 @@
 
     return {
       state: st, render, setMarks, zoomAt, project,
+      // lines: [{pts: [[lat, lon], ...], cls: 'css classes'}]
+      setLines(list) {
+        svg.textContent = '';
+        st.lines = list.map(l => { const p = document.createElementNS(SVGNS, 'path'); p.setAttribute('class', l.cls || ''); svg.appendChild(p); return { pts: l.pts, el: p }; });
+        render();
+      },
       setLayer(l) { st.layer = l; tilesEl.textContent = ''; tileImgs.clear(); render(); st.onMove(st); },
       center(lat, lon, z) { st.lat = lat; st.lon = lon; if (z) st.zoom = z; render(); },
     };
