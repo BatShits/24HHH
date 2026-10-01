@@ -76,15 +76,30 @@ MP_GPS_EST = {
 
 # Comp zone (scorecard section) -> app zone index 0-23.
 # Confirmed from Zack's 2026 zone counts: 0,4-12,14,16,20,23. Others are a provisional guess (ZONE_PROVISIONAL).
+# Zones = the 24 red-labelled walls on "The Full Horseshoe" map (last page of the 2024 rules PDF), numbered
+# round the horseshoe from the West Side to the Far East. The Park and The Carrion Cube aren't zones.
 ZONE_OF = {
- 'The Park': 0, 'The Westside Pt. 1': 0, 'The Westside Pt. 2': 1, 'Walls of Moria': 2, 'The Black Slabs': 2,
+ 'The Westside Pt. 1': 0, 'The Westside Pt. 2': 0, 'Walls of Moria': 1, 'The Black Slabs': 2,
  'The Arcade': 3, 'Street Fighter Wall': 4, 'Ren and Stimpy': 5, 'Prophecy Wall': 6, 'Titanic Boulder': 7,
  'Doomsday Wall': 8, 'Spooky Dookie': 9, 'Cooridor Area': 10, 'Circus Wall': 10, 'Kindergarten Boulder': 11,
  'Wall of Early Morning Light': 11, 'Crimp Scampi Area': 12, 'The Walls of Controversy': 13, 'Groovy Area': 13,
- 'The Land Beyond': 14, 'Goat Cave': 15, 'Mullet Buttress': 16, 'Land of the Lost': 16, 'New Meadow': 17,
+ 'The Land Beyond': 14, 'Mullet Buttress': 15, 'Goat Cave': 15, 'Land of the Lost': 16, 'New Meadow': 17,
  'Middle East': 18, 'Magoo Rock': 19, 'Wrangler Wall': 20, 'Roman Wall': 21, 'Cliffs of Insanity': 22,
- 'Far East': 23, 'The Carrion Cube': 0,
+ 'Far East': 23,
 }
-ZONE_CONFIRMED = {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 20, 23}
-ZONE_PROVISIONAL_WALLS = {'The Park', 'The Carrion Cube', 'Mullet Buttress', 'The Black Slabs'}  # wall placement unconfirmed even within a confirmed zone
+ZONE_CONFIRMED = set(range(24))  # wall grouping from the rules map; index order for 1/2 and 17-19 follows the map
+ZONE_PROVISIONAL_WALLS = {'Goat Cave'}  # not labelled on the map; grouped with Mullet Buttress next door
+# North Forty is one Mountain Project area but four comp zones; split it by comp zone, placed along the
+# North Forty West Approach trail (estimated from the rules map and OpenStreetMap).
+NF_SPLIT = {
+ 'Cooridor Area': ('North Forty: Corridor', (36.00867, -93.29666)),
+ 'Circus Wall': ('North Forty: Corridor', (36.00867, -93.29666)),
+ 'Wall of Early Morning Light': ('North Forty: Early Morning Light', (36.00858, -93.29595)),
+ 'Crimp Scampi Area': ('North Forty: Crimp Scampi', (36.00868, -93.29495)),
+ 'The Walls of Controversy': ('North Forty: Controversy and Groovy', (36.00880, -93.29425)),
+ 'Groovy Area': ('North Forty: Controversy and Groovy', (36.00880, -93.29425)),
+ 'Spooky Dookie': ('Spooky Dooky Wall', None),
+}
+# Check-in: four stations, locations unknown; until then the Trading Company (OpenStreetMap).
+CHECKIN = (36.00460, -93.29260)
 SPECIALS = {10: 'Hickadelic Jazzgrass', 651: 'Orange Crush'}

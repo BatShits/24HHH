@@ -44,7 +44,7 @@
   const sideGroup = side => side === 'East' ? 'E' : side === 'West' || side === 'North' ? 'W' : null;
   // Check-in point. The rules mention four stations without locations; until they're known, use the Trading Post on the valley floor.
   const CHECKIN = '__checkin';
-  const CHECKIN_LOC = { lat: 36.0012, lon: -93.2905, name: 'check-in at the Trading Post' }; // starting line by the Trading Post on the valley floor
+  const CHECKIN_LOC = { lat: 36.0046, lon: -93.2926, name: 'check-in at the Trading Post' }; // starting line by the Trading Post on the valley floor
 
   window.Planner = function (ctx) {
     const { $, el, store, GU, profiles, ROUTES, AREAS, ui } = ctx;
@@ -130,6 +130,8 @@
       if (!a || a === b) return 0;
       const A = locOf(a), B = locOf(b);
       const I = INTENSITY[plan && plan.intensity] || INTENSITY.standard;
+      const da = a === CHECKIN ? (B && B.d && B.d[CHECKIN]) : (A && A.d && A.d[b === CHECKIN ? CHECKIN : b]);
+      if (da != null) return I.walkPrep + da / I.walk; // trail distance (OpenStreetMap network)
       if (!A || !B || A.lat == null || B.lat == null) return I.walkPrep + 450 / I.walk;
       const R = 6371000, toR = Math.PI / 180;
       const d = 2 * R * Math.asin(Math.sqrt(Math.sin((B.lat - A.lat) * toR / 2) ** 2 + Math.cos(A.lat * toR) * Math.cos(B.lat * toR) * Math.sin((B.lon - A.lon) * toR / 2) ** 2));
@@ -322,7 +324,7 @@
               x += (r.pts || 0) * (goal === 'golden' ? 0.6 : 0.2);
               const needZone = plan.format === '24' || goal === 'golden' || s.zones.size < 12;
               if (r.zn != null && needZone && !s.zones.has(r.zn) && !(seen && seen.has(k + 'z' + r.zn))) x += !tour.length || nz.has(r.zn) ? TUNE.zone : 150;
-              if (r.sp && !s.specials.has(r.n)) x += !tour.length || nz.has(r.zn) ? TUNE.special : 150;
+              if (r.sp && !s.specials.has(r.n)) x += !tour.length || nz.has(r.zn) || s.zones.has(r.zn) ? TUNE.special : 150; // don't leave a special's wall without it
               if (goal === 'golden' && r.type === 'trad' && s.trad < F.trad.golden) x += 220;
             }
             if (plan.side.east && !s.east && r.side === 'East' && !(seen && seen.has(k + 'east'))) x += goal === 'score' ? 300 : 900;
@@ -666,6 +668,27 @@
       ctx.renderReference(d); body.appendChild(d);
     }
 
+    // ---------- trail legs for the map ----------
+    let G = null;
+    function legPts(a, b) {
+      const T = ctx.TRAILS && ctx.TRAILS(); const A = locOf(a), B = locOf(b);
+      const straight = [[A.lat, A.lon], [B.lat, B.lon]];
+      if (!T || T.snap[a] == null || T.snap[b] == null) return straight;
+      if (!G) { G = T.nodes.map(() => []); const m = (p, q) => { const t = Math.PI / 180; return 6371000 * Math.hypot((q[1] - p[1]) * t * Math.cos(p[0] * t), (q[0] - p[0]) * t); };
+        for (const [i, j] of T.edges) { const w = m(T.nodes[i], T.nodes[j]); G[i].push([j, w]); G[j].push([i, w]); } G.cache = {}; }
+      const s = T.snap[a], e = T.snap[b], key = s + '>' + e;
+      if (!G.cache[key]) {
+        const dist = new Float64Array(G.length).fill(Infinity), prev = new Int32Array(G.length).fill(-1), done = new Uint8Array(G.length);
+        dist[s] = 0;
+        for (;;) { let u = -1, bd = Infinity; for (let i = 0; i < G.length; i++) if (!done[i] && dist[i] < bd) { bd = dist[i]; u = i; }
+          if (u < 0 || u === e) break; done[u] = 1;
+          for (const [v, w] of G[u]) if (dist[u] + w < dist[v]) { dist[v] = dist[u] + w; prev[v] = u; } }
+        const path = []; for (let u = e; u >= 0; u = prev[u]) path.unshift(T.nodes[u]);
+        G.cache[key] = path[0] && path[0] === T.nodes[s] ? path : [];
+      }
+      return [[A.lat, A.lon], ...G.cache[key], [B.lat, B.lon]];
+    }
+
     // ---------- map data ----------
     function mapData() {
       const plan = active(); if (!plan || !plan.items.length) return null;
@@ -679,7 +702,7 @@
       }
       for (let i = 1; i < stops.length; i++) {
         const a = A[stops[i - 1].area], b = A[stops[i].area]; if (!a || !b || a.lat == null || b.lat == null) continue;
-        segs.push({ pts: [[a.lat, a.lon], [b.lat, b.lon]], light: light(plan, (stops[i - 1].depart + stops[i].arrive) / 2) });
+        segs.push({ pts: legPts(stops[i - 1].area, stops[i].area), light: light(plan, (stops[i - 1].depart + stops[i].arrive) / 2) });
       }
       // expected position at the clock time
       const T = clockAbs(plan); let exp = null;

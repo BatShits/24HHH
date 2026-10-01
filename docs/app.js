@@ -22,7 +22,7 @@
   if (!profiles) { profiles = { me: blankProfile(), partner: blankProfile() }; profiles.me.name = store.get('hhh.climber', ''); }
   const saveProfiles = () => store.set('hhh.profiles', profiles);
   const myName = () => profiles.me.name || '';
-  let ROUTES = [], AREAS = {};
+  let ROUTES = [], AREAS = {}, TRAILS = null;
   const save = () => store.set('hhh.ui', ui);
 
   // ---------- date + clock ----------
@@ -303,6 +303,11 @@
     $('#layer').textContent = ui.layer === 'topo' ? 'Aerial' : 'Topo';
     renderMap();
   }
+  // trails from OpenStreetMap: footpaths dashed, roads solid
+  function trailLines() {
+    if (!TRAILS) return [];
+    return TRAILS.lines.map(l => ({ pts: l.pts, cls: 'trail ' + (/footway|path|steps|track/.test(l.t) ? 'trail-foot' : 'trail-road') }));
+  }
   function renderMap() {
     if (!map) return;
     $('#mapMode').textContent = ui.mapMode === 'plan' ? 'All' : 'Plan';
@@ -321,12 +326,12 @@
           marks.push({ lat: s.lat, lon: s.lon, el: b });
         }
         if (pd.exp) { const e = el('span', 'expected'); e.title = pd.expLabel; e.appendChild(el('span', 'exp-l', pd.expLabel)); marks.push({ lat: pd.exp.lat, lon: pd.exp.lon, el: e }); }
-        map.setLines(pd.segs.map(s => ({ pts: s.pts, cls: 'seg light-' + s.light })));
-      } else map.setLines([]);
+        map.setLines([...trailLines(), ...pd.segs.map(s => ({ pts: s.pts, cls: 'seg light-' + s.light }))]);
+      } else map.setLines(trailLines());
       if (me) marks.push(me);
       map.setMarks(marks); return;
     }
-    map.setLines([]);
+    map.setLines(trailLines());
     const list = ROUTES.filter(matches);
     const marks = [];
     for (const [name, a] of Object.entries(AREAS)) {
@@ -513,7 +518,7 @@
     ui.tab = t; save();
     $$('.view').forEach(v => v.hidden = v.dataset.view !== t);
     $$('.tabs button').forEach(b => b.dataset.tab === t ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
-    if (t === 'map') initMap(), requestAnimationFrame(() => map.render());
+    if (t === 'map') { initMap(); renderMap(); requestAnimationFrame(() => map.render()); }
     if (t === 'plan') renderPlan();
     if (t === 'me') { renderProfiles(); noteStatus(); offlineStatus(); }
   }
@@ -542,8 +547,9 @@
     try {
       const [r, a] = await Promise.all([fetch('data/routes.json').then(x => x.json()), fetch('data/areas.json').then(x => x.json())]);
       ROUTES = r; AREAS = a;
+      TRAILS = await fetch('data/trails.json').then(x => x.json()).catch(() => null);
     } catch (e) { $('#count').textContent = 'Route data didn\'t load. Open the app once with signal so it can save itself.'; return; }
-    planner = window.Planner({ $, el, store, GU, profiles, ROUTES: () => ROUTES, AREAS: () => AREAS, ui, feelOf, openDetail, showTab, saveUi: save,
+    planner = window.Planner({ $, el, store, GU, profiles, ROUTES: () => ROUTES, AREAS: () => AREAS, TRAILS: () => TRAILS, ui, feelOf, openDetail, showTab, saveUi: save,
       onPlanChange: () => renderMap(), renderReference, onClock: () => updateClock() });
     renderList(); showTab(ui.tab);
     $('#buildInfo').textContent = 'Version ' + (window.HHH_VERSION || 'dev') + '.';

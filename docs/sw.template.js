@@ -3,7 +3,7 @@ const VERSION = '__VERSION__';
 const APP_CACHE = 'hhh-app-' + VERSION;
 const TILE_CACHE = 'hhh-tiles';
 const SHELL = ['./', 'index.html', 'styles.css', 'sun.js', 'map.js', 'plan.js', 'app.js', 'version.js', 'manifest.webmanifest',
-  'data/routes.json', 'data/areas.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
+  'data/routes.json', 'data/areas.json', 'data/trails.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(APP_CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))  // skip the browser's HTTP cache so an update never caches stale files).then(() => self.skipWaiting()));
