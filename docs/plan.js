@@ -178,7 +178,7 @@
     }
     function blankStats(plan) {
       const s = {};
-      for (const k of WHO) s[k] = { pts: 0, laps: 0, ft: 0, trad: 0, zones: new Set(), specials: new Set(), east: false, hours: new Set(), done: new Set(), hardHour: {} };
+      for (const k of WHO) s[k] = { pts: 0, laps: 0, ft: 0, trad: 0, zones: new Set(), specials: new Set(), east: false, hours: new Set(), done: new Set(), hardHour: {}, grades: {} };
       return s;
     }
     function applyRoute(plan, stats, r, who, t1) {
@@ -187,7 +187,7 @@
         const s = stats[k]; if (s.done.has(r.id)) continue;
         s.done.add(r.id); s.laps++; s.pts += r.pts || 0; s.ft += r.ht || 0; if (r.type === 'trad') s.trad++;
         if (r.zn != null) s.zones.add(r.zn); if (r.sp) s.specials.add(r.sp); if (r.side === 'East') s.east = true;
-        s.hours.add(hr);
+        s.hours.add(hr); const gl = gradeLabel(r.gu, r.g); s.grades[gl] = (s.grades[gl] || 0) + 1;
       }
     }
     function timeline(plan, items, upto) {
@@ -315,6 +315,7 @@
             if (plan.reach !== false && reachBlocked(r, c)) continue;
             if (gu > c.os && (s.hardHour[hr] || 0) >= I.hard) continue;
             if (dayHard && pre.lt !== 'day' && gu >= c.os) continue;
+            const lim = plan.gradeMax && plan.gradeMax[gradeLabel(r.gu, r.g)]; if (lim != null && (s.grades[gradeLabel(r.gu, r.g)] || 0) >= lim) continue;
             if (earlyHard && tt - plan.start >= 12 && gu >= c.os) continue;
             who.push(k);
           }
@@ -588,6 +589,7 @@
       if (gu < 0) return '5.' + (10 + Math.round(gu));
       return '5.' + (10 + Math.floor(gu / 4)) + 'abcd'[Math.min(3, Math.floor(gu % 4))];
     }
+    const GU2 = L => { const m = /^5\.(\d+)([abcd])?/.exec(L); if (!m) return -9; const n = +m[1]; return n >= 10 ? (n - 10) * 4 + (m[2] ? 'abcd'.indexOf(m[2]) : 0) : n - 10; };
     function gradeChart(plan, tl) {
       const counts = {}, order = {};
       for (const row of tl.rows) if (row.kind === 'route') {
@@ -615,6 +617,30 @@
       if (same) key.textContent = 'Same routes for both of you';
       else names.forEach((n, i) => { const s2 = el('span'); s2.append(el('i', 'gc-sw c' + i), document.createTextNode(n)); key.appendChild(s2); });
       box.appendChild(key);
+      // grade limits: cap how many routes of a grade each climber gets, then rebuild
+      const lims = plan.gradeMax || {};
+      const limBox = el('div', 'gc-limits');
+      const sel = el('select'); sel.setAttribute('aria-label', 'Grade to limit'); sel.add(new Option('Limit a grade…', ''));
+      const allGrades = [...new Set(comp().map(r => gradeLabel(r.gu, r.g)))].filter(L => L !== '?').sort((a, b) => GU2(a) - GU2(b));
+      for (const L of allGrades) sel.add(new Option(L + (counts[L] ? ` (${Math.max(counts[L].me, counts[L].partner)} now)` : ''), L));
+      const num = el('input'); num.type = 'number'; num.min = 0; num.inputMode = 'numeric'; num.placeholder = 'max'; num.setAttribute('aria-label', 'Most routes of that grade per climber');
+      sel.onchange = () => { if (sel.value && counts[sel.value]) num.value = Math.max(0, Math.max(counts[sel.value].me, counts[sel.value].partner) - 1); num.focus(); };
+      const addL = el('button', 'btn', 'Set'); addL.type = 'button';
+      addL.onclick = () => { if (!sel.value || num.value === '') return; plan.gradeMax = { ...lims, [sel.value]: Math.max(0, Math.round(+num.value)) }; save(); render(); };
+      const row1 = el('div', 'gc-limrow'); row1.append(sel, num, addL); limBox.appendChild(row1);
+      const keys = Object.keys(lims).sort((a, b) => GU2(a) - GU2(b));
+      if (keys.length) {
+        const chips = el('div', 'gc-limrow');
+        for (const L of keys) { const c = el('button', 'chip-x', `${L} ≤ ${lims[L]} ×`); c.type = 'button'; c.setAttribute('aria-label', 'Remove the ' + L + ' limit');
+          c.onclick = () => { const n = { ...lims }; delete n[L]; plan.gradeMax = n; save(); render(); }; chips.appendChild(c); }
+        limBox.appendChild(chips);
+        const over = keys.some(L => counts[L] && Math.max(counts[L].me, counts[L].partner) > lims[L]);
+        const go = el('button', 'btn' + (over ? ' primary' : ''), 'Recalculate with these limits'); go.type = 'button';
+        go.onclick = () => { if (plan.items.some(i => i.done) && !confirm('Recalculating replaces the whole plan, including checked-off routes. Continue?')) return;
+          go.disabled = true; go.textContent = 'Recalculating…'; setTimeout(() => { build(plan); save(); render(); ctx.onPlanChange(); }, 30); };
+        limBox.appendChild(go);
+      }
+      box.appendChild(limBox);
       return box;
     }
     function renderSummary(body, plan) {
@@ -635,6 +661,7 @@
       rowOf('Golden Horseshoe', (s, a) => yes(a.golden));
       rowOf('Qualifies', (s, a) => yes(a.qual));
       const grid = el('div', 'sumgrid'); grid.append(tbl, gradeChart(plan, tl)); sec.appendChild(grid);
+      const lb = grid.querySelector('.gc-limits'); if (lb) sec.appendChild(lb); // full width under the table and chart
       // why the two lists differ: the inputs each climber was planned with, and routes only one of you leads
       const solo = WHO.map(k => plan.items.filter(it => it.who && it.who.length === 1 && it.who[0] === k).length);
       const inp = WHO.map(k => { const c = climber(plan, k), p = c.raw;
@@ -647,7 +674,7 @@
       rp.textContent = `Required pace: ${(climbing / F.dur).toFixed(1)} laps per hour per climber (${climbing} laps over ${F.dur} hours).`;
       sec.appendChild(rp);
       if (plan.unreachable) sec.appendChild(el('p', 'warn', `This plan can't reach ${targetOf(plan) ? targetOf(plan).toLocaleString() + ' ' + UNIT[plan.goal] : GOALS[plan.goal]} for both climbers even at a very fast pace. Try a lower target, a harder push setting, or a higher division.`));
-      sec.appendChild(el('p', 'hint small', `Plan ends ${fmtAbs(plan, tl.t, true)}; event ends ${fmtAbs(plan, plan.start + F.dur, true)}. Zone numbers for 10 of the 24 zones are a best guess until the organizers confirm the wall list.`));
+      sec.appendChild(el('p', 'hint small', `Plan ends ${fmtAbs(plan, tl.t, true)}; event ends ${fmtAbs(plan, plan.start + F.dur, true)}.${tl.t > plan.start + F.dur + 0.01 ? ' The plan runs past the end, so trim a route or two.' : ''}`));
       // pace
       const done = plan.items.map((it, i) => ({ it, i })).filter(x => x.it.done);
       if (done.length) {
@@ -726,7 +753,10 @@
         const r = row.r;
         if (r.area !== lastArea) { stop++; lastArea = r.area; groups.push({ start: row.i, el: null, members: [] });
           const h = el('li', 'p-stop'); h.append(el('span', 'p-stopn', stop), el('span', 'p-stopname', r.area), el('span', 'p-time', fmtAbs(plan, row.t0, true)));
-          const gh = dragHandle('Drag to move ' + r.area + ' and its routes'); h.appendChild(gh); const G = groups[groups.length - 1]; G.el = h; G.members.push(h);
+          const G = groups[groups.length - 1];
+          const addB = el('button', 'p-add', '+ Add'); addB.type = 'button'; addB.setAttribute('aria-label', 'Add a route at ' + r.area);
+          addB.onclick = () => { const gi = groups.indexOf(G); openPicker(plan, gi + 1 < groups.length ? groups[gi + 1].start : plan.items.length, r.area); };
+          const gh = dragHandle('Drag to move ' + r.area + ' and its routes'); h.append(addB, gh); G.el = h; G.members.push(h);
           gh.addEventListener('pointerdown', e => startDrag(e, 'wall', groups.indexOf(G)));
           list.appendChild(h); }
         const li = el('li', 'p-route' + (row.done ? ' done' : '')); li.dataset.i = row.i;
@@ -769,10 +799,11 @@
     }
 
     // picker: suggestions ranked by fit at the insertion point
-    function openPicker(plan, at) {
+    function openPicker(plan, at, wall) {
       const d = $('#detail'); d.textContent = '';
       const tl = normRows(timeline(plan, plan.items, at));
-      const head = el('header', 'd-head'); const t = el('div', 'd-title'); t.append(el('h2', null, 'Add a route'), el('p', null, `At about ${fmtAbs(plan, tl.t, true)}${tl.area ? ', near ' + tl.area : ''}`));
+      const head = el('header', 'd-head'); const t = el('div', 'd-title');
+      t.append(el('h2', null, wall ? 'Add a route at ' + wall : 'Add a route'), el('p', null, wall ? 'Routes on this wall that aren\'t in the plan yet' : `At about ${fmtAbs(plan, tl.t, true)}${tl.area ? ', near ' + tl.area : ''}`));
       const close = el('button', 'd-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close'); close.onclick = () => d.close();
       head.append(t, close); d.appendChild(head);
       const q = el('input', 'search'); q.type = 'search'; q.placeholder = 'Search all routes'; q.style.margin = '0 16px 8px'; q.style.width = 'calc(100% - 32px)';
@@ -780,8 +811,9 @@
       const ol = el('ol', 'routes compact picker'); d.appendChild(ol);
       const rel = (tl.t - plan.start) / FORMATS[plan.format].dur;
       const cl = Object.fromEntries(WHO.map(k => [k, climber(plan, k)]));
-      const cands = comp().map(r => {
-        const who = WHO.filter(k => !tl.stats[k].done.has(r.id) && (r.gu ?? -6) <= DIVS[cl[k].div].max);
+      const inPlan = Object.fromEntries(WHO.map(k => [k, new Set(plan.items.filter(it => it.rid && it.who && it.who.includes(k)).map(it => it.rid))]));
+      const cands = comp().filter(r => !wall || r.area === wall).map(r => {
+        const who = WHO.filter(k => !tl.stats[k].done.has(r.id) && !inPlan[k].has(r.id) && (r.gu ?? -6) <= DIVS[cl[k].div].max);
         const okNow = who.filter(k => (r.gu ?? -6) <= ceilingAt(plan, cl[k], rel) + 0.01);
         const w = walkMin(tl.area, r.area, plan);
         let mins = w + 1; for (const k of (okNow.length ? okNow : who)) mins += leadMin(plan, r, cl[k], tl.t);
@@ -790,10 +822,12 @@
       const draw = () => {
         ol.textContent = '';
         const term = q.value.trim().toLowerCase();
-        const list = (term ? cands.filter(c => (c.r.name + ' ' + c.r.area + ' ' + c.r.n).toLowerCase().includes(term)) : cands.slice().sort((a, b) => b.score - a.score)).slice(0, 60);
+        const list = (term ? cands.filter(c => (c.r.name + ' ' + c.r.area + ' ' + c.r.n).toLowerCase().includes(term)) : cands.slice().sort(wall ? (a, b) => (a.r.gu ?? -9) - (b.r.gu ?? -9) : (a, b) => b.score - a.score)).slice(0, wall ? 200 : 60);
+        if (!list.length) ol.appendChild(el('li', 'hint', wall ? 'Every route here that you can climb is already in the plan.' : 'No matches.'));
         for (const c of list) {
           const li = el('li', 'route');
-          li.append(el('span', 'grade ' + (ctx.feelOf(c.r) ? 'feel-' + ctx.feelOf(c.r) : ''), c.r.g), (() => { const m = el('span', 'mid'); m.append(el('span', 'name', c.r.name), el('span', 'sub', `${c.r.area}, ${c.w ? Math.round(c.w) + ' min walk' : 'here'}, ${Math.round(c.mins - c.w)} min to climb`)); return m; })(), el('span', 'right', c.r.pts));
+          const whoTxt = c.who.length === WHO.length ? '' : ', ' + climber(plan, c.who[0]).name + ' only';
+          li.append(el('span', 'grade ' + (ctx.feelOf(c.r) ? 'feel-' + ctx.feelOf(c.r) : ''), c.r.g), (() => { const m = el('span', 'mid'); m.append(el('span', 'name', c.r.name), el('span', 'sub', wall ? `${c.r.type || 'sport'}, ${c.r.ht || '?'} ft, about ${Math.round(c.mins - c.w)} min${whoTxt}` : `${c.r.area}, ${c.w ? Math.round(c.w) + ' min walk' : 'here'}, ${Math.round(c.mins - c.w)} min to climb${whoTxt}`)); return m; })(), el('span', 'right', c.r.pts));
           li.onclick = () => { plan.items.splice(at, 0, { rid: c.r.id, who: c.who }); save(); d.close(); render(); ctx.onPlanChange(); };
           ol.appendChild(li);
         }

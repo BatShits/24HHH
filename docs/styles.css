@@ -321,3 +321,10 @@ a.button { color: inherit; text-decoration: none; }
 .drop-before { box-shadow: inset 0 3px 0 var(--accent); }
 .plan-list.drop-end { box-shadow: inset 0 -3px 0 var(--accent); }
 .drop-after { box-shadow: inset 0 -3px 0 var(--accent); }
+.p-add { margin-left: auto; border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 4px 12px; min-height: 36px; font-weight: 600; font-size: .85rem; cursor: pointer; }
+.p-stop .p-add + .drag { margin-left: 0; }
+.gc-limits { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+.gc-limrow { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.gc-limrow select { flex: 1 1 160px; min-height: 40px; }
+.gc-limrow input { width: 4.5em; min-height: 40px; }
+.gc-limits .btn { min-height: 40px; }
