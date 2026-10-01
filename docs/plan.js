@@ -322,7 +322,8 @@
             if (plan.gmin && bucket < GU2(plan.gmin)) continue;
             if (plan.gmax && bucket > GU2(plan.gmax)) continue;
             if (plan.darkMax && pre.lt !== 'day' && bucket > GU2(plan.darkMax)) continue;
-            if (plan.tradMax && r.type === 'trad' && bucket > GU2(plan.tradMax)) continue; // hardest trad grade // hardest grade after dark
+            if (plan.tradMax && r.type === 'trad' && bucket > GU2(plan.tradMax)) continue; // hardest trad grade
+            if (r.v && r.v.includes('stiff') && bucket >= GU2(gradeLabel(c.os, ''))) continue; // no stiff-for-grade routes at or above onsight // hardest grade after dark
             if (plan.warm) { // warm-up routes first, then ramp up one grade step every two routes
               const wn = plan.warmN ?? 3, base = Math.max(GU2(plan.warm), plan.gmin ? GU2(plan.gmin) : -99);
               if (bucket > base + (s.laps < wn ? 0 : 1 + Math.floor((s.laps - wn) / 2))) continue;
