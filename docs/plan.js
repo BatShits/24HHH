@@ -582,6 +582,41 @@
       for (const it of plan.items) { const r = it.rid && byId[it.rid]; if (!r) continue; const g = sideGroup(r.side); if (g && g0 && g !== g0) n++; if (g) g0 = g; }
       return n;
     }
+    // routes per grade, per climber (horizontal bars; one bar when you both lead the same routes)
+    function gradeLabel(gu, g) {
+      if (gu == null) return g && /5th/i.test(g) ? '5th' : '?';
+      if (gu < 0) return '5.' + (10 + Math.round(gu));
+      return '5.' + (10 + Math.floor(gu / 4)) + 'abcd'[Math.min(3, Math.floor(gu % 4))];
+    }
+    function gradeChart(plan, tl) {
+      const counts = {}, order = {};
+      for (const row of tl.rows) if (row.kind === 'route') {
+        const L = gradeLabel(row.r.gu, row.r.g); order[L] = row.r.gu ?? -9;
+        for (const k of row.who) ((counts[L] ||= { me: 0, partner: 0 })[k]++);
+      }
+      const labels = Object.keys(counts).sort((a, b) => order[a] - order[b]);
+      const same = labels.every(L => counts[L].me === counts[L].partner);
+      const max = Math.max(1, ...labels.flatMap(L => [counts[L].me, counts[L].partner]));
+      const box = el('figure', 'gradechart');
+      box.appendChild(el('figcaption', null, 'Routes by grade'));
+      const names = WHO.map(k => climber(plan, k).name);
+      for (const L of labels) {
+        const row = el('div', 'gc-row'); row.appendChild(el('span', 'gc-l', L));
+        const bars = el('span', 'gc-bars');
+        for (const [i, k] of (same ? [[0, 'me']] : WHO.map((k, i) => [i, k]))) {
+          const n = counts[L][k]; const line = el('span', 'gc-line');
+          const b = el('span', 'gc-bar ' + (same ? 'both' : 'c' + i)); b.style.width = (n / max * 100) + '%';
+          line.title = `${L}: ${n} route${n === 1 ? '' : 's'}${same ? ' each' : ' for ' + names[i]}`;
+          line.append(b, el('span', 'gc-n', n)); bars.appendChild(line);
+        }
+        row.appendChild(bars); box.appendChild(row);
+      }
+      const key = el('p', 'gc-key');
+      if (same) key.textContent = 'Same routes for both of you';
+      else names.forEach((n, i) => { const s2 = el('span'); s2.append(el('i', 'gc-sw c' + i), document.createTextNode(n)); key.appendChild(s2); });
+      box.appendChild(key);
+      return box;
+    }
     function renderSummary(body, plan) {
       const tl = normRows(timeline(plan, plan.items)); const F = FORMATS[plan.format];
       const sec = el('section', 'psum');
@@ -599,7 +634,7 @@
       rowOf('Full Horseshoe', (s, a) => yes(a.full));
       rowOf('Golden Horseshoe', (s, a) => yes(a.golden));
       rowOf('Qualifies', (s, a) => yes(a.qual));
-      sec.appendChild(tbl);
+      const grid = el('div', 'sumgrid'); grid.append(tbl, gradeChart(plan, tl)); sec.appendChild(grid);
       // why the two lists differ: the inputs each climber was planned with, and routes only one of you leads
       const solo = WHO.map(k => plan.items.filter(it => it.who && it.who.length === 1 && it.who[0] === k).length);
       const inp = WHO.map(k => { const c = climber(plan, k), p = c.raw;
@@ -636,7 +671,43 @@
     function renderItems(body, plan) {
       const tl = normRows(timeline(plan, plan.items));
       const list = el('ol', 'plan-list');
-      let stop = 0, lastArea = null;
+      let stop = 0, lastArea = null; const groups = []; // groups: one per wall stop, in plan order
+      const dragHandle = label => { const b = el('button', 'drag', '⠿'); b.type = 'button'; b.setAttribute('aria-label', label); return b; };
+      // drag and drop (pointer events, so it works with touch): routes move one at a time, walls move with all their routes
+      const startDrag = (e, kind, idx, srcLi) => {
+        e.preventDefault(); const h = e.currentTarget; h.setPointerCapture(e.pointerId);
+        const moving = kind === 'route' ? [srcLi] : groups[idx].members;
+        const targets = kind === 'route' ? [...list.querySelectorAll('li.p-route')].filter(x => x !== srcLi) : groups.filter((g, j) => j !== idx).map(g => g.el);
+        const y0 = e.clientY + window.scrollY; let lastY = e.clientY, target = undefined, scroller = 0;
+        moving.forEach(m => m.classList.add('dragging'));
+        const mark = () => {
+          const y = lastY; let t = null;
+          for (const x of targets) { const rc = x.getBoundingClientRect(); if (y < rc.top + rc.height / 2) { t = x; break; } }
+          if (t !== target) { list.querySelectorAll('.drop-before').forEach(x => x.classList.remove('drop-before')); list.classList.toggle('drop-end', !t); if (t) t.classList.add('drop-before'); target = t; }
+          const dy = lastY + window.scrollY - y0; moving.forEach(m => m.style.transform = `translateY(${dy}px)`);
+        };
+        const onMove = ev => { lastY = ev.clientY; mark(); };
+        scroller = setInterval(() => { const edge = 70, H = window.innerHeight; const v = lastY < edge + 40 ? -14 : lastY > H - edge - 60 ? 14 : 0; if (v) { window.scrollBy(0, v); mark(); } }, 30);
+        const onUp = () => {
+          clearInterval(scroller); h.removeEventListener('pointermove', onMove); h.removeEventListener('pointerup', onUp); h.removeEventListener('pointercancel', onUp);
+          moving.forEach(m => { m.classList.remove('dragging'); m.style.transform = ''; });
+          list.querySelectorAll('.drop-before').forEach(x => x.classList.remove('drop-before')); list.classList.remove('drop-end');
+          if (target === undefined) return;
+          const items = plan.items;
+          if (kind === 'route') {
+            const to = target ? +target.dataset.i : items.length; if (to === idx || to === idx + 1) return;
+            const [it] = items.splice(idx, 1); items.splice(to > idx ? to - 1 : to, 0, it);
+          } else {
+            const g = groups[idx], s0 = g.start, s1 = idx + 1 < groups.length ? groups[idx + 1].start : items.length;
+            const tg = target ? groups.find(x => x.el === target) : null; const to = tg ? tg.start : items.length;
+            if (to === s0 || to === s1) return;
+            const block = items.splice(s0, s1 - s0); items.splice(to > s0 ? to - block.length : to, 0, ...block);
+          }
+          editing = null; save(); render(); ctx.onPlanChange();
+        };
+        h.addEventListener('pointermove', onMove); h.addEventListener('pointerup', onUp); h.addEventListener('pointercancel', onUp);
+        mark();
+      };
       const whoLabel = w => w.length === 2 ? 'Both' : w[0] === 'me' ? climber(plan, 'me').name : climber(plan, 'partner').name;
       for (const row of tl.rows) {
         if (row.kind === 'walk') { list.appendChild(el('li', 'p-walk light-' + row.light, `${(INTENSITY[plan.intensity] || INTENSITY.standard).walk >= 120 ? 'Jog' : 'Walk'} ${Math.max(1, Math.round((row.t1 - row.t0) * 60))} min to ${placeName(row.to)}`)); continue; }
@@ -646,7 +717,11 @@
           list.appendChild(li); continue;
         }
         const r = row.r;
-        if (r.area !== lastArea) { stop++; lastArea = r.area; const h = el('li', 'p-stop'); h.append(el('span', 'p-stopn', stop), el('span', 'p-stopname', r.area), el('span', 'p-time', fmtAbs(plan, row.t0, true))); list.appendChild(h); }
+        if (r.area !== lastArea) { stop++; lastArea = r.area; groups.push({ start: row.i, el: null, members: [] });
+          const h = el('li', 'p-stop'); h.append(el('span', 'p-stopn', stop), el('span', 'p-stopname', r.area), el('span', 'p-time', fmtAbs(plan, row.t0, true)));
+          const gh = dragHandle('Drag to move ' + r.area + ' and its routes'); h.appendChild(gh); const G = groups[groups.length - 1]; G.el = h; G.members.push(h);
+          gh.addEventListener('pointerdown', e => startDrag(e, 'wall', groups.indexOf(G)));
+          list.appendChild(h); }
         const li = el('li', 'p-route' + (row.done ? ' done' : '')); li.dataset.i = row.i;
         const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!row.done; cb.setAttribute('aria-label', 'Done: ' + r.name);
         cb.onchange = () => { const it = plan.items[row.i]; it.done = cb.checked ? new Date().toISOString() : undefined; save(); render(); ctx.onPlanChange(); };
@@ -661,7 +736,8 @@
         if (r.type === 'trad') tags.appendChild(el('span', 'tag', 'Trad'));
         main.appendChild(tags);
         main.onclick = () => { editing = editing === row.i ? null : row.i; render(); };
-        li.append(cb, main);
+        const hd = dragHandle('Drag to move ' + r.name); hd.addEventListener('pointerdown', e => startDrag(e, 'route', row.i, li));
+        li.append(cb, main, hd); groups[groups.length - 1].members.push(li);
         if (editing === row.i) {
           const a = el('div', 'p-actions');
           const btn = (label, fn, cls) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.onclick = () => { fn(); save(); render(); ctx.onPlanChange(); }; a.appendChild(b); };

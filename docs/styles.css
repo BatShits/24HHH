@@ -293,3 +293,30 @@ h4 { margin: 1em 0 .2em; font-size: .95rem; }
 a.button { color: inherit; text-decoration: none; }
 .startwalls { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
 .chip-x { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 8px 12px; min-height: 40px; cursor: pointer; }
+.sumgrid { display: flex; gap: 12px; align-items: flex-start; }
+.sumgrid .sumtable { flex: 1 1 auto; width: auto; min-width: 0; }
+.gradechart { flex: 0 1 300px; min-width: 112px; margin: 0; font-variant-numeric: tabular-nums; }
+@media (max-width: 520px) {
+  .sumgrid .sumtable { font-size: .86rem; }
+  .sumgrid .sumtable th, .sumgrid .sumtable td { padding: 5px 4px; }
+  .gradechart { flex-basis: 118px; }
+}
+.gradechart figcaption { font-size: .9rem; font-weight: 600; padding: 6px 0; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.gc-row { display: grid; grid-template-columns: 2.9em 1fr; align-items: center; gap: 6px; min-height: 20px; }
+.gc-l { font-size: .82rem; color: var(--muted); text-align: right; }
+.gc-bars { display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
+.gc-line { display: flex; align-items: center; gap: 4px; min-height: 9px; }
+.gc-bar { display: block; height: 9px; min-width: 3px; border-radius: 0 4px 4px 0; }
+.gc-bar.both, .gc-bar.c0, .gc-sw.c0 { background: var(--accent); }
+.gc-bar.c1, .gc-sw.c1 { background: var(--shade); }
+.gc-n { font-size: .78rem; color: var(--ink); }
+.gc-key { font-size: .78rem; color: var(--muted); margin: 6px 0 0; display: flex; gap: 10px; flex-wrap: wrap; }
+.gc-sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 4px; vertical-align: -1px; }
+.p-route { grid-template-columns: auto 1fr auto; }
+.p-route .p-actions { grid-column: 1 / -1; }
+.drag { border: 0; background: none; color: var(--muted); font-size: 1.25rem; line-height: 1; min-width: 40px; min-height: 40px; cursor: grab; touch-action: none; user-select: none; -webkit-user-select: none; }
+.p-stop .drag { margin-left: auto; }
+.p-stop, .p-route { position: relative; }
+.dragging { opacity: .75; background: var(--surface); box-shadow: 0 6px 18px rgba(0,0,0,.18); z-index: 5; position: relative; }
+.drop-before { box-shadow: inset 0 3px 0 var(--accent); }
+.plan-list.drop-end { box-shadow: inset 0 -3px 0 var(--accent); }
