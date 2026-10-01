@@ -353,3 +353,5 @@ a.button { color: inherit; text-decoration: none; }
 .lg-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--shade); flex: none; }
 .lg-dot.sun { background: var(--sun); border-color: var(--sun); margin-left: 14px; }
 .sumtable tr.team td { font-weight: 600; }
+.p-goalline { list-style: none; margin: 14px 0 6px; padding: 8px 10px; border-top: 3px solid var(--soft); border-bottom: 1px dashed var(--soft); color: var(--soft); font-weight: 700; font-size: .9rem; }
+.sumtable tr.goalsby th, .sumtable tr.goalsby td { color: var(--soft); }

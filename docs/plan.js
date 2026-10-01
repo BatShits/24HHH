@@ -830,8 +830,9 @@
           const times = gs.map(g => gt[g]); const last = times.some(x => x == null) ? null : Math.max(...times);
           const aim = Math.max(...gs.map(g => (BUFFER[g] || {})[plan.format] || 0));
           const spare = last == null ? null : end - last;
-          teamRow('Goals done', last == null ? 'Not reached' : `${fmtAbs(plan, last, true)} · ${spare.toFixed(1)} h spare (aim ${aim} h)`,
+          teamRow('Goals met by', last == null ? 'Not reached' : `${fmtAbs(plan, last, true)} · ${spare.toFixed(1)} h buffer (aim ${aim} h)`,
             gs.map(g => `${GOALS[g].replace(/ \(.*\)/, '')}: ${gt[g] == null ? 'not reached' : fmtAbs(plan, gt[g], true)}`).join('; '));
+          const gr = tbl.lastChild; gr.classList.add('goalsby'); tbl.insertBefore(gr, tbl.children[1]); // first row under the names
           if (last != null && spare < aim - 0.05) sec.appendChild(el('p', 'warn', `Only ${spare.toFixed(1)} h spare after your goals (aim ${aim} h). There's little room for a lost phone or a queue at a must-have route; a harder push level, a higher division or a lower target would buy time.`));
         } }
       teamRow('Efficiency', `${letter} · ${Math.round(pct)}% climbing`, 'A: 92%+ of moving time climbing, B: 88%+, C: 84%+, D: 80%+, F: under 80%. Breaks and check-in stops are left out; walks to check-in count.');
@@ -922,7 +923,15 @@
         mark();
       };
       const whoLabel = w => w.length === 2 ? 'Both' : w[0] === 'me' ? climber(plan, 'me').name : climber(plan, 'partner').name;
+      // where the goals are all met: everything after that line is optional
+      const gtL = goalTimes(plan, tl), gsL = goalsOf(plan);
+      const doneAt = gsL.length && gsL.every(g => gtL[g] != null) ? Math.max(...gsL.map(g => gtL[g])) : null;
+      let lineDrawn = doneAt == null;
       for (const row of tl.rows) {
+        if (!lineDrawn && row.t0 >= doneAt - 1e-6 && !(row.kind === 'route' && Math.abs(row.t1 - doneAt) < 1e-6)) {
+          lineDrawn = true; const end = plan.start + FORMATS[plan.format].dur;
+          list.appendChild(el('li', 'p-goalline', `Goals met at ${fmtAbs(plan, doneAt, true)} · ${(end - doneAt).toFixed(1)} h buffer. Everything below is optional.`));
+        }
         if (row.kind === 'walk') { list.appendChild(el('li', 'p-walk light-' + row.light, `${(INTENSITY[plan.intensity] || INTENSITY.standard).walk >= 120 ? 'Jog' : 'Walk'} ${Math.max(1, Math.round((row.t1 - row.t0) * 60))} min to ${placeName(row.to)}`)); continue; }
         if (row.kind === 'checkin' || row.kind === 'break') {
           const li = el('li', 'p-break ' + row.kind + (row.auto ? ' auto' : '')); li.append(el('span', 'p-time', fmtAbs(plan, row.t0, true)), el('span', null, `${row.label}, ${Math.round((row.t1 - row.t0) * 60)} min`));
