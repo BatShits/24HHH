@@ -547,7 +547,15 @@
       onPlanChange: () => renderMap(), renderReference, onClock: () => updateClock() });
     renderList(); showTab(ui.tab);
     $('#buildInfo').textContent = 'Version ' + (window.HHH_VERSION || 'dev') + '.';
-    if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+    if ('serviceWorker' in navigator) {
+      // Pick up new versions: check on launch and whenever the app comes back to the foreground, then reload once the new version takes over.
+      const hadController = !!navigator.serviceWorker.controller; let reloaded = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => { if (hadController && !reloaded) { reloaded = true; location.reload(); } });
+      navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' }).then(reg => {
+        const check = () => { if (navigator.onLine) reg.update().catch(() => {}); };
+        check(); document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') check(); });
+      }).catch(() => {});
+    }
   }
   boot();
 })();
