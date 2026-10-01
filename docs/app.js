@@ -13,10 +13,15 @@
   const STATUS = [['want', 'Want to try'], ['tried', 'Tried'], ['sent', 'Sent'], ['skip', 'Skip']];
   const FEEL = [['soft', 'Soft'], ['on', 'On grade'], ['stiff', 'Stiff']];
 
-  const defaults = { q: '', gmin: '5.2', gmax: '5.14a', side: [], type: [], feel: [], sun: [], list: [], sort: 'walk', date: '', hour: 13, theme: 'auto', tab: 'routes', layer: 'topo', map: null };
+  const defaults = { q: '', gmin: '5.2', gmax: '5.14a', side: [], type: [], feel: [], sun: [], list: [], fit: [], sort: 'walk', date: '', hour: 13, theme: 'auto', tab: 'routes', layer: 'topo', map: null };
   const ui = Object.assign({}, defaults, store.get('hhh.ui', {}));
+  if (!Array.isArray(ui.fit)) ui.fit = [];
   let notes = store.get('hhh.notes', {});
-  let climber = store.get('hhh.climber', '');
+  const blankProfile = () => ({ name: '', age: '', onsight: '', project: '', ht: '', ape: 0 });
+  let profiles = store.get('hhh.profiles', null);
+  if (!profiles) { profiles = { me: blankProfile(), partner: blankProfile() }; profiles.me.name = store.get('hhh.climber', ''); }
+  const saveProfiles = () => store.set('hhh.profiles', profiles);
+  const myName = () => profiles.me.name || '';
   let ROUTES = [], AREAS = {};
   const save = () => store.set('hhh.ui', ui);
 
@@ -93,7 +98,7 @@
       const k = box.dataset.key; const v = ui[k];
       box.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', Array.isArray(v) ? v.includes(b.dataset.v) : v === b.dataset.v));
     });
-    const n = ['side', 'type', 'feel', 'sun', 'list'].reduce((a, k) => a + ui[k].length, 0) + (ui.gmin !== defaults.gmin || ui.gmax !== defaults.gmax ? 1 : 0);
+    const n = ['side', 'type', 'feel', 'sun', 'list', 'fit'].reduce((a, k) => a + ui[k].length, 0) + (ui.gmin !== defaults.gmin || ui.gmax !== defaults.gmax ? 1 : 0);
     $('#filterCount').textContent = n ? `(${n})` : '';
   }
   $$('.chips[data-key]').forEach(box => box.addEventListener('click', e => {
@@ -105,6 +110,26 @@
     if (k === 'theme') applyTheme(); else { renderList(); renderMap(); }
   }));
 
+  // ---------- climber fit ----------
+  function fitOf(r, p) {
+    if (!p || !p.onsight || r.gu == null) return '';
+    const os = GU(p.onsight), pg = p.project ? GU(p.project) : os + 2;
+    if (r.gu <= os + 0.01) return 'onsight';
+    if (r.gu < pg - 0.4) return 'push';
+    if (r.gu <= pg + 0.6) return 'project';
+    return 'beyond';
+  }
+  const FITLABEL = { onsight: 'Onsight range', push: 'Push', project: 'Project', beyond: 'Above project' };
+  function reachOf(r, p) {
+    if (!r.reach || !p || !p.ht) return '';
+    const span = +p.ht + (+p.ape || 0);   // wingspan in inches
+    const many = r.reach >= 4;
+    // most reach complaints on Mountain Project come from climbers 5'1" to 5'5"
+    if (span <= 64 || (many && span <= 66)) return 'high';
+    if (span <= 67 || (many && span <= 68.5)) return 'moderate';
+    return 'low';
+  }
+  const fmtHt = i => i ? `${Math.floor(i / 12)}'${i % 12}"` : '';
   function feelOf(r) { const v = r.v || ''; return v.includes('soft') ? 'soft' : v.includes('stiff') ? 'stiff' : v === 'on grade' ? 'on' : ''; }
   function matches(r) {
     if (r.gu != null) { if (r.gu < GU(ui.gmin) - 0.01 || r.gu > GU(ui.gmax) + 0.01) return false; }
@@ -112,6 +137,12 @@
     if (ui.type.length && !ui.type.includes(r.type)) return false;
     if (ui.feel.length && !ui.feel.includes(feelOf(r))) return false;
     if (ui.sun.length) { const s = sunFor(r); const k = s === 'partial' ? 'sun' : s === 'dark' ? 'shade' : s; if (!ui.sun.includes(k)) return false; }
+    if (ui.fit.length) {
+      const f = fitOf(r, profiles.me);
+      const want = ui.fit.filter(x => x !== 'noreach');
+      if (want.length && !want.includes(f)) return false;
+      if (ui.fit.includes('noreach') && ['high', 'moderate'].includes(reachOf(r, profiles.me))) return false;
+    }
     if (ui.list.length) {
       for (const l of ui.list) {
         if (l === 'target' && r.tier !== 'target') return false;
@@ -151,6 +182,8 @@
       const nm = el('span', 'name', r.name);
       if (r.tier === 'target') nm.appendChild(el('span', 'flag target', 'Target'));
       if (r.tier === 'avoid for points') nm.appendChild(el('span', 'flag avoid', 'Avoid'));
+      const fit = fitOf(r, profiles.me); if (fit && fit !== 'onsight') nm.appendChild(el('span', 'flag fit-' + fit, FITLABEL[fit]));
+      const rch = reachOf(r, profiles.me); if (rch === 'high' || rch === 'moderate') nm.appendChild(el('span', 'flag reach-' + rch, 'Reachy'));
       const sub = el('span', 'sub', [r.n ? 'No. ' + r.n : 'Not in comp', r.area || r.zone, r.type].filter(Boolean).join(', '));
       mid.append(nm, sub);
       const n = notes[r.id];
@@ -213,9 +246,23 @@
     if (r.mp) { const aEl = el('a', 'ext', 'Open on Mountain Project'); aEl.href = 'https://www.mountainproject.com/route/' + r.mp; aEl.target = '_blank'; aEl.rel = 'noopener'; g.appendChild(aEl); }
     d.appendChild(g);
 
+    // fit for each climber
+    const people = [profiles.me, profiles.partner].filter(p => p.name || p.onsight || p.ht);
+    if (people.length) {
+      const fs = el('section', 'd-sec'); fs.appendChild(el('h3', null, 'For the two of you'));
+      for (const p of people) {
+        const f = fitOf(r, p), rc = reachOf(r, p);
+        const bits = [];
+        if (f) bits.push(FITLABEL[f].toLowerCase());
+        if (r.reach) bits.push(rc ? `${rc} reach risk at ${fmtHt(+p.ht)}${p.ape ? ` (${p.ape > 0 ? '+' : ''}${p.ape} in ape)` : ''}` : 'reach mentioned; add height to judge');
+        fs.appendChild(el('p', null, `${p.name || 'Unnamed climber'}: ${bits.length ? bits.join(', ') : 'set grades in the You tab'}.`));
+      }
+      d.appendChild(fs);
+    }
+
     // notes
     const n = Object.assign({ status: '', feel: '', text: '' }, notes[r.id]);
-    const ns = el('section', 'd-sec'); ns.appendChild(el('h3', null, climber ? `${climber}'s notes` : 'Your notes'));
+    const ns = el('section', 'd-sec'); ns.appendChild(el('h3', null, myName() ? `${myName()}'s notes` : 'Your notes'));
     const mk = (opts, key) => {
       const box = el('div', 'chips single');
       for (const [v, label] of opts) {
@@ -342,12 +389,41 @@
   }
 
   // ---------- notes export/import ----------
-  $('#climber').value = climber;
-  $('#climber').oninput = e => { climber = e.target.value.trim(); store.set('hhh.climber', climber); };
+  function renderProfiles() {
+    const box = $('#profiles'); box.textContent = '';
+    for (const [key, title] of [['me', 'You (this phone)'], ['partner', 'Partner']]) {
+      const p = profiles[key];
+      const card = el('fieldset', 'profile'); card.appendChild(el('legend', null, title));
+      const field = (label, input) => { const l = el('label', 'field'); l.append(label, input); card.appendChild(l); return input; };
+      const txt = field('Name', el('input')); txt.type = 'text'; txt.value = p.name; txt.autocomplete = key === 'me' ? 'nickname' : 'off';
+      txt.oninput = () => { p.name = txt.value.trim(); saveProfiles(); };
+      const age = field('Age', el('input')); age.type = 'number'; age.inputMode = 'numeric'; age.min = 10; age.max = 90; age.value = p.age;
+      age.oninput = () => { p.age = age.value ? +age.value : ''; saveProfiles(); };
+      const gsel = (label, k) => {
+        const s = el('select'); s.add(new Option('Not set', '')); for (const g of GRADES) s.add(new Option(g, g)); s.value = p[k];
+        s.onchange = () => { p[k] = s.value; saveProfiles(); renderList(); };
+        return field(label, s);
+      };
+      gsel('Onsight grade (confident first try)', 'onsight'); gsel('Project grade (hardest you can redpoint)', 'project');
+      const hrow = el('div', 'ht-row');
+      const ft = el('select'), inch = el('select');
+      ft.add(new Option('ft', '')); for (let f = 4; f <= 7; f++) ft.add(new Option(f + ' ft', f));
+      for (let i = 0; i < 12; i++) inch.add(new Option(i + ' in', i));
+      if (p.ht) { ft.value = Math.floor(p.ht / 12); inch.value = p.ht % 12; }
+      const setHt = () => { p.ht = ft.value ? (+ft.value) * 12 + (+inch.value) : ''; saveProfiles(); renderList(); };
+      ft.onchange = setHt; inch.onchange = setHt; hrow.append(ft, inch);
+      const hl = el('div', 'field'); hl.append(el('span', null, 'Height'), hrow); card.appendChild(hl);
+      const ape = el('select');
+      for (let i = -4; i <= 8; i++) ape.add(new Option(i === 0 ? 'Even (wingspan = height)' : `${i > 0 ? '+' : '−'}${Math.abs(i)} in`, i));
+      ape.value = p.ape || 0; ape.onchange = () => { p.ape = +ape.value; saveProfiles(); renderList(); };
+      field('Ape index (wingspan minus height)', ape);
+      box.appendChild(card);
+    }
+  }
   function noteStatus(msg) { $('#noteStatus').textContent = msg || `${Object.keys(notes).length} routes have notes on this phone.`; }
   $('#btnExport').onclick = async () => {
-    const payload = { app: 'hhh-field-guide', version: 1, climber: climber || 'unknown', exported: new Date().toISOString(), notes };
-    const name = `hhh-notes-${(climber || 'climber').toLowerCase().replace(/\W+/g, '-')}-${new Date().toISOString().slice(0, 10)}.json`;
+    const payload = { app: 'hhh-field-guide', version: 2, climber: myName() || 'unknown', exported: new Date().toISOString(), profiles, notes };
+    const name = `hhh-notes-${(myName() || 'climber').toLowerCase().replace(/\W+/g, '-')}-${new Date().toISOString().slice(0, 10)}.json`;
     const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
     const file = new File([blob], name, { type: 'application/json' });
     try {
@@ -363,7 +439,12 @@
       for (const [id, v] of Object.entries(data.notes || {})) {
         if (!notes[id] || (v.updated || '') > (notes[id].updated || '')) { notes[id] = v; n++; }
       }
-      store.set('hhh.notes', notes); renderList(); noteStatus(`Imported ${n} notes from ${data.climber || 'file'}.`);
+      // a partner's export: take their profile as this phone's partner profile
+      let pmsg = '';
+      if (data.profiles && data.profiles.me && data.climber && data.climber !== myName()) {
+        profiles.partner = Object.assign(blankProfile(), data.profiles.me); saveProfiles(); renderProfiles(); pmsg = ` Partner profile updated from ${data.climber}.`;
+      }
+      store.set('hhh.notes', notes); renderList(); noteStatus(`Imported ${n} notes from ${data.climber || 'file'}.${pmsg}`);
     } catch (err) { noteStatus('That file isn\'t a notes export from this app.'); }
     e.target.value = '';
   };
@@ -402,7 +483,7 @@
     $$('.tabs button').forEach(b => b.dataset.tab === t ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
     if (t === 'map') initMap(), requestAnimationFrame(() => map.render());
     if (t === 'plan') renderPlan();
-    if (t === 'me') { noteStatus(); offlineStatus(); }
+    if (t === 'me') { renderProfiles(); noteStatus(); offlineStatus(); }
   }
   $$('.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
@@ -411,7 +492,7 @@
   $('#q').oninput = e => { ui.q = e.target.value.trim(); save(); renderList(); };
   $('#btnFilters').onclick = () => { const f = $('#filters'); f.hidden = !f.hidden; $('#btnFilters').setAttribute('aria-expanded', !f.hidden); };
   $('#sort').value = ui.sort; $('#sort').onchange = e => { ui.sort = e.target.value; save(); renderList(); };
-  $('#btnReset').onclick = () => { Object.assign(ui, { gmin: defaults.gmin, gmax: defaults.gmax, side: [], type: [], feel: [], sun: [], list: [] }); save(); buildGradeSelects(); syncChips(); renderList(); renderMap(); };
+  $('#btnReset').onclick = () => { Object.assign(ui, { gmin: defaults.gmin, gmax: defaults.gmax, side: [], type: [], feel: [], sun: [], list: [], fit: [] }); save(); buildGradeSelects(); syncChips(); renderList(); renderMap(); };
   let raf = 0;
   const onTime = () => { cancelAnimationFrame(raf); raf = requestAnimationFrame(() => { updateClock(); renderList(); renderMap(); if (ui.tab === 'plan') renderPlan(); }); };
   $('#hour').oninput = e => { ui.hour = +e.target.value; save(); onTime(); };

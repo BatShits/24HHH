@@ -72,6 +72,12 @@
           <button type="button" data-v="target">Targets</button><button type="button" data-v="avoid">Avoid for points</button><button type="button" data-v="z26">Climbed in 2026</button><button type="button" data-v="mine">My notes</button><button type="button" data-v="comp">In the comp</button>
         </div>
       </fieldset>
+      <fieldset>
+        <legend>For me (set in the You tab)</legend>
+        <div class="chips" data-key="fit">
+          <button type="button" data-v="onsight">Onsight range</button><button type="button" data-v="push">Push</button><button type="button" data-v="project">Project</button><button type="button" data-v="noreach">Hide reachy for me</button>
+        </div>
+      </fieldset>
       <div class="filters-foot">
         <label>Sort
           <select id="sort">
@@ -111,11 +117,12 @@
 
   <section class="view" id="view-me" data-view="me" hidden>
     <div class="prose">
+      <h2>Climbers</h2>
+      <p class="hint">Fill in both of you. Grades set which routes count as in your onsight range, a push, or a project. Height and ape index decide whether reachy routes get flagged for each of you.</p>
+      <div class="profiles" id="profiles"></div>
+
       <h2>Your notes</h2>
-      <label class="field">Who is using this phone?
-        <input id="climber" type="text" placeholder="Your name" autocomplete="nickname">
-      </label>
-      <p class="hint">Notes are saved on this phone only. Export them after each trip and send the file to Claude so they get merged into the master data.</p>
+      <p class="hint">Notes are saved on this phone only. Export them after each trip and send the file to Claude so they get merged into the master data. The export includes both climber profiles.</p>
       <div class="btnrow">
         <button type="button" class="primary" id="btnExport">Export notes</button>
         <label class="button">Import notes<input id="fileImport" type="file" accept="application/json,.json" hidden></label>
@@ -145,7 +152,7 @@
   <button type="button" data-tab="routes" aria-current="page">Routes</button>
   <button type="button" data-tab="map">Map</button>
   <button type="button" data-tab="plan">Plan</button>
-  <button type="button" data-tab="me">Notes</button>
+  <button type="button" data-tab="me">You</button>
 </nav>
 
 <dialog class="detail" id="detail"></dialog>

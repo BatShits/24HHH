@@ -208,3 +208,14 @@ textarea { width: 100%; margin-top: 10px; border: 1px solid var(--line); backgro
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
 ::placeholder { color: var(--muted); opacity: 1; }
+
+/* ---- climber profiles ---- */
+.profiles { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
+.profile { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-l); padding: 8px 14px 14px; margin: 0; display: grid; gap: 10px; }
+.profile legend { font-weight: 700; color: var(--ink); font-size: 1rem; padding: 0 4px; }
+.profile select, .profile input { border: 1px solid var(--line); background: var(--bg); border-radius: var(--radius-s); padding: 8px 10px; color: var(--ink); }
+.ht-row { display: flex; gap: 8px; }
+.ht-row select { flex: 1; }
+.flag.fit-push { background: var(--accent); color: var(--accent-ink); }
+.flag.fit-project, .flag.fit-beyond { background: var(--ink); color: var(--bg); }
+.flag.reach-high, .flag.reach-moderate { background: transparent; color: var(--stiff); border: 1px solid var(--stiff); }
