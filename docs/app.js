@@ -139,8 +139,9 @@
     if (ui.sun.length) { const s = sunFor(r); const k = s === 'partial' ? 'sun' : s === 'dark' ? 'shade' : s; if (!ui.sun.includes(k)) return false; }
     if (ui.fit.length) {
       const f = fitOf(r, profiles.me);
-      const want = ui.fit.filter(x => x !== 'noreach');
+      const want = ui.fit.filter(x => x !== 'noreach' && x !== 'noabove');
       if (want.length && !want.includes(f)) return false;
+      if (ui.fit.includes('noabove') && f === 'beyond') return false;
       if (ui.fit.includes('noreach') && ['high', 'moderate'].includes(reachOf(r, profiles.me))) return false;
     }
     if (ui.list.length) {
@@ -175,7 +176,7 @@
     $('#count').textContent = `${list.length} of ${ROUTES.length} routes`;
     const ol = $('#routes'); ol.textContent = '';
     const frag = document.createDocumentFragment();
-    for (const r of list.slice(0, 400)) {
+    for (const r of list) {
       const li = el('li', 'route'); li.dataset.id = r.id; li.tabIndex = 0; li.setAttribute('role', 'button');
       const g = el('span', 'grade ' + (feelOf(r) ? 'feel-' + feelOf(r) : ''), r.g || '?');
       const mid = el('span', 'mid');
