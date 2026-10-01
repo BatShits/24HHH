@@ -137,6 +137,7 @@
       const d = 2 * R * Math.asin(Math.sqrt(Math.sin((B.lat - A.lat) * toR / 2) ** 2 + Math.cos(A.lat * toR) * Math.cos(B.lat * toR) * Math.sin((B.lon - A.lon) * toR / 2) ** 2));
       return I.walkPrep + d * 1.3 / I.walk;
     }
+    const sunPref = plan => plan.sunPref || (plan.avoidSun === false ? 'none' : 'shade');
     const breakMin = plan => plan.breakMin != null ? plan.breakMin : (INTENSITY[plan.intensity] || INTENSITY.standard).breaks;
     function sunAt(plan, r, abs) {
       const a = AREAS()[r.area]; if (!a) return 'varies';
@@ -248,6 +249,10 @@
       let curG = null, crossings = 0; const left = new Set(); let prevA = START_AREA;
       for (const it of items) { const r = it.rid && byId[it.rid]; if (!r) continue; const g = sideGroup(r.side);
         if (g && curG && g !== curG) crossings++; if (g) curG = g; if (r.area !== prevA) left.add(prevA); prevA = r.area; }
+      // walls the climber wants to start with, in order (fresh builds only)
+      const forced = (plan.startWalls || []).filter(a => byArea[a]);
+      let fi = items.length ? forced.length : 0, fArr = t; // fArr: when we reached the current wall
+      const tourFrom = fi < forced.length ? forced[forced.length - 1] : area, tourG = fi < forced.length ? (GRP[tourFrom] || curG) : curG;
       // coverage goals: plan a walking tour through every zone first (nearest neighbour + 2-opt), then follow it
       let tour = [];
       if (goal === 'full' || goal === 'golden') {
@@ -267,9 +272,9 @@
         // one crossing: finish every zone on one side, then cross once. Start on the side that's in shade first
         // (east-facing West side is shady in the afternoon, west-facing East side in the morning), or where we already are.
         const zg = z => GRP[rep[z]];
-        const first = curG || (dh(plan, t).hour < 10 ? 'E' : 'W'), second = first === 'W' ? 'E' : 'W';
+        const first = tourG || (dh(plan, t).hour < 10 ? 'E' : 'W'), second = first === 'W' ? 'E' : 'W';
         const segs = [zones.filter(z => zg(z) !== second), zones.filter(z => zg(z) === second)];
-        let cur = area;
+        let cur = tourFrom;
         for (const seg of segs) {
           const start = cur, todo = new Set(seg); let part = [];
           while (todo.size) { let bz = null, bd = 1e9; for (const z of todo) { const d = walkMin(cur, rep[z], plan); if (d < bd) { bd = d; bz = z; } } part.push(bz); todo.delete(bz); cur = rep[bz]; }
@@ -343,27 +348,40 @@
         // score each wall: best routes there for about H minutes, against the walk to reach it.
         // First pass keeps the sweep (at most TUNE.turns turnarounds per side); relax only if nothing fits.
         let best = null, bestRate = 0;
+        // chosen starting walls: only the current one, or the next one once it beats staying
+        let allowed = null;
+        if (fi < forced.length) {
+          if (area !== forced[fi] || t - fArr < H / 60) allowed = new Set([forced[fi]]); // at least ~45 min of climbing at each chosen wall
+          else if (fi + 1 < forced.length) allowed = new Set([forced[fi], forced[fi + 1]]);
+        }
         for (const strict of [true, false]) { if (best) break;
         for (const [a, rs] of Object.entries(byArea)) {
+          if (allowed && !allowed.has(a)) continue;
+          const isF = !!allowed;
           const w = walkMin(area, a, plan);
           if (t + (w + 5) / 60 > end) continue;
           const g = GRP[a]; let pen = 0;
-          if (g && curG && g !== curG) {
+          if (isF) { if (g && curG && g !== curG) pen += CROSS_PEN[0]; }
+          else if (g && curG && g !== curG) {
             if (crossings >= maxCross) continue;
             if (crossings >= 1 && end - t < 3) continue; // no second crossing late in the event
             if (tourSide && tourSide === curG) continue;
             pen += CROSS_PEN[Math.min(crossings, CROSS_PEN.length - 1)];
           } else if (tourSide && g && g !== tourSide && !curG) continue;
+          if (!isF) {
           // coverage plans follow the zone tour in order: no skipping ahead to a later zone's wall
           if (openTour.length && WZ[a] && !WZ[a].has(openTour[0]) && [...WZ[a]].some(z => openTour.includes(z))) continue;
           if (a !== area) pen += TUNE.move;          // every move costs setup time
           if (left.has(a)) pen += TUNE.back;
           const rev = dir && POS[a] != null && lastPos != null && Math.abs(POS[a] - lastPos) > 2 && Math.sign(POS[a] - lastPos) !== dir;
           if (rev) { if (strict && turns >= TUNE.turns) continue; pen += TUNE.reverse; }
-          if (strict && left.has(a) && !rev && a !== area) continue; // never double back past a wall without turning round        // going back to a wall already left
+          if (strict && left.has(a) && !rev && a !== area) continue; // never double back past a wall without turning round
+          }
           if (GRP[a] === null && a !== area) pen += TUNE.valley; // detours onto the valley floor
           let sunF = 1;
-          if (plan.avoidSun !== false && hh >= 10.5 && hh <= 17.5) { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.55 : st === 'partial' ? 0.8 : 1; }
+          const sp = sunPref(plan);
+          if (sp === 'shade' && hh >= 10.5 && hh <= 17.5) { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.55 : st === 'partial' ? 0.8 : 1; }
+          else if (sp === 'sun' && pre.lt === 'day') { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 1 : st === 'partial' ? 0.85 : st === 'shade' ? 0.65 : 0.8; }
           const opts = []; for (const r of rs) { const e = evalRoute(r, t + w / 60); if (e && t + (w + e.mins) / 60 <= end && !(strict && plan.together !== false && e.who.length < WHO.length)) opts.push(e); }
           if (!opts.length) continue;
           opts.sort((x, y) => y.v / y.mins - x.v / x.mins);
@@ -376,12 +394,15 @@
             for (const k of e2.who) { if (o.r.zn != null) seen.add(k + 'z' + o.r.zn); if (o.r.side === 'East') seen.add(k + 'east'); }
           }
           // in the strict pass, don't walk more than a few minutes for a single short climb (unless the zone tour needs that wall)
-          if (strict && a !== area && w > 4 && used < 20 && !(openTour.length && WZ[a] && WZ[a].has(openTour[0]))) continue;
+          if (strict && !isF && a !== area && w > 4 && used < 20 && !(openTour.length && WZ[a] && WZ[a].has(openTour[0]))) continue;
           const rate = val * sunF / ((plan.walkWeight ?? WALKW) * w + used + pen);
           if (rate > bestRate) { bestRate = rate; best = { first: opts[0], w, a }; }
         } }
+        if (!best && fi < forced.length) { fi++; continue; } // a chosen wall with nothing (more) to climb: move on
         if (!best) { items.push({ type: 'break', min: 10, label: 'Rest' }); t += 10 / 60; continue; }
+        if (fi < forced.length) { if (best.a === forced[fi + 1]) fi++; else if (area === forced[forced.length - 1] && fi === forced.length - 1 && best.a !== area) fi = forced.length; }
         const pick = best.first;
+        if (pick.r.area !== area) fArr = t + best.w / 60;
         items.push({ rid: pick.r.id, who: pick.who });
         t += (best.w + pick.mins) / 60;
         { const g = GRP[pick.r.area]; if (g && curG && g !== curG) { crossings++; dir = 0; turns = 0; } if (g) curG = g; if (pick.r.area !== area) left.add(area);
@@ -517,7 +538,22 @@
       bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = v === I.breaks ? undefined : v; save(); render(); };
       const brow = el('div', 'target-row'); brow.append(bi, el('span', null, 'minutes per hour'));
       d.appendChild(field('Breaks', brow, `Suggested for ${I.label} ${I.breaks} min per hour. Taken as one break each hour. Walking between walls is ${I.walkName}.`));
-      d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['avoidSun', 'Avoid direct sun midday'], ['reach', 'Skip routes too reachy']], { together: plan.together !== false, avoidSun: plan.avoidSun !== false, reach: plan.reach !== false },
+      d.appendChild(field('Sun or shade', chipRow([['shade', 'I prefer to climb in the shade'], ['sun', 'I prefer to climb in direct sun']], sunPref(plan) === 'sun' ? 'sun' : 'shade',
+        v => upd(() => { plan.sunPref = v; })()), sunPref(plan) === 'sun' ? 'Favors walls in direct sun whenever it\'s light out.' : 'Steers away from walls in direct sun from about 10:30 am to 5:30 pm.'));
+      // starting walls, in order
+      const sw = el('div', 'startwalls'); const list = (plan.startWalls ||= []);
+      list.forEach((a, i) => { const c = el('button', 'chip-x', `${i + 1}. ${a.replace(/^The /, '')} ×`); c.type = 'button'; c.setAttribute('aria-label', 'Remove ' + a); c.onclick = upd(() => list.splice(i, 1)); sw.appendChild(c); });
+      const addSel = el('select'); addSel.add(new Option(list.length ? 'Then…' : 'Add a wall…', ''));
+      const wallsAll = [...new Set(comp().map(r => r.area))].filter(a => !list.includes(a) && AREAS()[a]);
+      const sideOrder = { West: 0, North: 1, East: 2, Valley: 3 };
+      const sideOf = a => (comp().find(r => r.area === a) || {}).side || 'Valley';
+      wallsAll.sort((x, y) => (sideOrder[sideOf(x)] - sideOrder[sideOf(y)]) || ((linePos(AREAS()[x]) ?? 0) - (linePos(AREAS()[y]) ?? 0)));
+      let og = null, lastSide = null;
+      for (const a of wallsAll) { const sd = sideOf(a); if (sd !== lastSide) { og = document.createElement('optgroup'); og.label = sd === 'Valley' ? 'Valley floor' : sd + ' side'; addSel.appendChild(og); lastSide = sd; } og.appendChild(new Option(a, a)); }
+      addSel.onchange = () => { if (addSel.value) { list.push(addSel.value); save(); render(); } };
+      sw.appendChild(addSel);
+      d.appendChild(field('Start at', sw, list.length ? 'The plan starts at these walls in this order, staying at each until moving on pays off, then plans the rest itself.' : 'Optional. Pick walls to start with, in order; the planner takes it from there.'));
+      d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['reach', 'Skip routes too reachy']], { together: plan.together !== false, reach: plan.reach !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
       if (plan.format === '24') {
         const lab = el('label', 'checkline'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!plan.dayHard;
