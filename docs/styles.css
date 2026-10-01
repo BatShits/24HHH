@@ -355,3 +355,12 @@ a.button { color: inherit; text-decoration: none; }
 .sumtable tr.team td { font-weight: 600; }
 .p-goalline { list-style: none; margin: 14px 0 6px; padding: 8px 10px; border-top: 3px solid var(--soft); border-bottom: 1px dashed var(--soft); color: var(--soft); font-weight: 700; font-size: .9rem; }
 .sumtable tr.goalsby th, .sumtable tr.goalsby td { color: var(--soft); }
+.p-fold { border: 0; background: none; color: var(--muted); font-size: 1rem; min-width: 32px; min-height: 36px; cursor: pointer; padding: 0; }
+.p-count { font-size: .85rem; color: var(--muted); font-weight: 600; }
+.fold-bar { margin: 8px 0 0; }
+/* wall stop header: [fold][n][name ........][+Add][drag]; time and count on a second line under the name */
+.plan-list .p-stop { display: grid; grid-template-columns: auto auto minmax(0, 1fr) auto auto; grid-template-areas: "f n name add drag" "f n meta add drag"; column-gap: 8px; row-gap: 0; align-items: center; }
+.p-stop .p-fold { grid-area: f; } .p-stop .p-stopn { grid-area: n; } .p-stop .p-stopname { grid-area: name; overflow-wrap: anywhere; }
+.p-stop .p-time { grid-area: meta; font-weight: 600; font-size: .85rem; color: var(--muted); }
+.p-stop .p-count { grid-area: meta; justify-self: end; }
+.p-stop .p-add { grid-area: add; margin-left: 0; } .p-stop .drag { grid-area: drag; margin-left: 0; }

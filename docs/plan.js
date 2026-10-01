@@ -596,6 +596,7 @@
     // ---------- rendering ----------
     let editing = null; // index of item whose actions are open
     const setupOpen = {}; // plan id -> setup panel open?
+    const collapsedStops = {}; // plan id -> Set of collapsed stop keys
     function render() {
       const y = window.scrollY; requestAnimationFrame(() => window.scrollTo(0, y)); // keep your place while editing
       const body = $('#planBody'); body.textContent = '';
@@ -879,6 +880,7 @@
       const tl = normRows(timeline(plan, plan.items));
       const list = el('ol', 'plan-list');
       let stop = 0, lastArea = null; const groups = []; // groups: one per wall stop, in plan order
+      const fold = (collapsedStops[plan.id] ||= new Set()); const seenArea = {}; // stop key = wall + nth visit, survives reorders of other walls
       const dragHandle = label => { const b = el('button', 'drag', '⠿'); b.type = 'button'; b.setAttribute('aria-label', label); return b; };
       // drag and drop (pointer events, so it works with touch): routes move one at a time, walls move with all their routes
       const startDrag = (e, kind, idx, srcLi, grp) => {
@@ -940,7 +942,11 @@
         }
         const r = row.r;
         if (r.area !== lastArea) { stop++; lastArea = r.area; groups.push({ start: row.i, el: null, members: [] });
-          const h = el('li', 'p-stop'); h.append(el('span', 'p-stopn', stop), el('span', 'p-stopname', r.area), el('span', 'p-time', fmtAbs(plan, row.t0, true)));
+          const key = r.area + '#' + (seenArea[r.area] = (seenArea[r.area] || 0) + 1);
+          const h = el('li', 'p-stop'); h.dataset.key = key; if (fold.has(key)) h.classList.add('folded');
+          const tg = el('button', 'p-fold', fold.has(key) ? '▸' : '▾'); tg.type = 'button'; tg.setAttribute('aria-expanded', !fold.has(key)); tg.setAttribute('aria-label', (fold.has(key) ? 'Show' : 'Hide') + ' routes at ' + r.area);
+          tg.onclick = () => { fold.has(key) ? fold.delete(key) : fold.add(key); render(); };
+          h.append(tg, el('span', 'p-stopn', stop), el('span', 'p-stopname', r.area), el('span', 'p-time', fmtAbs(plan, row.t0, true)));
           const G = groups[groups.length - 1];
           const addB = el('button', 'p-add', '+ Add'); addB.type = 'button'; addB.setAttribute('aria-label', 'Add a route at ' + r.area);
           addB.onclick = () => { const gi = groups.indexOf(G); openPicker(plan, gi + 1 < groups.length ? groups[gi + 1].start : plan.items.length, r.area); };
@@ -979,6 +985,20 @@
         }
         list.appendChild(li);
       }
+      // collapsed walls: hide their routes and breaks, show a count on the header
+      let hide = false, cnt = null;
+      for (const li of list.children) {
+        if (li.classList.contains('p-stop')) { hide = li.classList.contains('folded'); cnt = { li, n: 0 }; li._cnt = cnt; continue; }
+        if (li.classList.contains('p-walk') || li.classList.contains('p-goalline')) continue;
+        if (li.classList.contains('p-route') && cnt) cnt.n++;
+        if (hide && !li.classList.contains('checkin')) li.hidden = true;
+      }
+      for (const h of list.querySelectorAll('.p-stop.folded')) h.insertBefore(el('span', 'p-count', h._cnt.n + (h._cnt.n === 1 ? ' route' : ' routes')), h.querySelector('.p-time'));
+      const bar = el('div', 'btnrow fold-bar');
+      const allKeys = [...list.querySelectorAll('.p-stop')].map(h => h.dataset.key);
+      const bF = el('button', 'btn', 'Collapse all walls'); bF.type = 'button'; bF.onclick = () => { allKeys.forEach(k => fold.add(k)); render(); };
+      const bE = el('button', 'btn', 'Expand all'); bE.type = 'button'; bE.onclick = () => { fold.clear(); render(); };
+      bar.append(bF, bE); body.appendChild(bar);
       body.appendChild(list);
       const add = el('div', 'btnrow');
       const wsel = el('select'); wsel.setAttribute('aria-label', 'Add routes from a wall'); wsel.add(new Option(plan.items.length ? 'Add routes from a wall…' : 'Start at a wall…', ''));
