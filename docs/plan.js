@@ -319,13 +319,15 @@
             if (plan.reach !== false && reachBlocked(r, c)) continue;
             if (gu > c.os && (s.hardHour[hr] || 0) >= I.hard) continue;
             const bucket = GU2(gradeLabel(r.gu, r.g));
-            if (plan.gmin && bucket < GU2(plan.gmin)) continue;
-            if (plan.gmax && bucket > GU2(plan.gmax)) continue;
+            // separate grade ranges: sport (and mixed) use gmin/gmax, trad uses tmin/tradMax
+            const isTrad = r.type === 'trad', lo = isTrad ? plan.tmin : plan.gmin, hi = isTrad ? plan.tradMax : plan.gmax;
+            if (lo && bucket < GU2(lo)) continue;
+            if (hi && bucket > GU2(hi)) continue;
             if (plan.darkMax && pre.lt !== 'day' && bucket > GU2(plan.darkMax)) continue;
-            if (plan.tradMax && r.type === 'trad' && bucket > GU2(plan.tradMax)) continue; // hardest trad grade
+
             if (r.v && r.v.includes('stiff') && bucket >= GU2(gradeLabel(c.os, ''))) continue; // no stiff-for-grade routes at or above onsight // hardest grade after dark
             if (plan.warm) { // warm-up routes first, then ramp up one grade step every two routes
-              const wn = plan.warmN ?? 3, base = Math.max(GU2(plan.warm), plan.gmin ? GU2(plan.gmin) : -99);
+              const wn = plan.warmN ?? 3, base = Math.max(GU2(plan.warm), lo ? GU2(lo) : -99);
               if (bucket > base + (s.laps < wn ? 0 : 1 + Math.floor((s.laps - wn) / 2))) continue;
             }
             const lim = plan.gradeMax && plan.gradeMax[gradeLabel(r.gu, r.g)]; if (lim != null && (s.grades[gradeLabel(r.gu, r.g)] || 0) >= lim) continue;
@@ -522,7 +524,7 @@
             if (gu > ceilingAt(plan, c, rel) + 0.01) return false;
             if (plan.darkMax && row.light !== 'day' && bucket > GU2(plan.darkMax)) return false;
             if (plan.earlyHard && plan.format === '24' && row.t0 - plan.start >= 12 && gu >= c.os) return false;
-            if (plan.warm) { const wn = plan.warmN ?? 3, base = Math.max(GU2(plan.warm), plan.gmin ? GU2(plan.gmin) : -99);
+            if (plan.warm) { const lo = r.type === 'trad' ? plan.tmin : plan.gmin, wn = plan.warmN ?? 3, base = Math.max(GU2(plan.warm), lo ? GU2(lo) : -99);
               if (bucket > base + (laps[k] < wn ? 0 : 1 + Math.floor((laps[k] - wn) / 2))) return false; }
             if (gu > c.os) { hard[k][hr] = (hard[k][hr] || 0) + 1; if (hard[k][hr] > I.hard) return false; }
             laps[k]++;
@@ -645,10 +647,11 @@
       const gradeList = [...new Set(comp().map(r => gradeLabel(r.gu, r.g)))].filter(L => L !== '?' && L !== '5th').sort((a, b) => GU2(a) - GU2(b));
       const gSel = (val, none, onPick, aria) => { const s = el('select'); s.setAttribute('aria-label', aria); s.add(new Option(none, '')); for (const L of gradeList) s.add(new Option(L, L)); s.value = val || ''; s.onchange = () => { onPick(s.value || undefined); save(); render(); }; return s; };
       const rg = el('div', 'target-row');
-      rg.append(gSel(plan.gmin, 'Lowest: any', v => { plan.gmin = v; }, 'Lowest grade'), el('span', null, 'to'), gSel(plan.gmax, 'Highest: any', v => { plan.gmax = v; }, 'Highest grade'));
-      d.appendChild(field('Grade range', rg, 'Only routes in this range get planned (division and push level still cap the top).'));
-      const tk = el('div', 'target-row'); tk.append(gSel(plan.tradMax, 'No limit', v => { plan.tradMax = v; }, 'Hardest trad grade'));
-      d.appendChild(field('Hardest trad grade', tk, plan.tradMax ? `Trad routes above ${plan.tradMax} are left out; sport routes aren't affected.` : 'Optional. Caps the grade for trad leads only.'));
+      rg.append(gSel(plan.gmin, 'Lowest: any', v => { plan.gmin = v; }, 'Lowest sport grade'), el('span', null, 'to'), gSel(plan.gmax, 'Highest: any', v => { plan.gmax = v; }, 'Highest sport grade'));
+      d.appendChild(field('Sport grade range', rg));
+      const tk = el('div', 'target-row');
+      tk.append(gSel(plan.tmin, 'Lowest: any', v => { plan.tmin = v; }, 'Lowest trad grade'), el('span', null, 'to'), gSel(plan.tradMax, 'Highest: any', v => { plan.tradMax = v; }, 'Highest trad grade'));
+      d.appendChild(field('Trad grade range', tk, 'Only routes in these ranges get planned; division and push level can still cap the top.'));
       const dk = el('div', 'target-row'); dk.append(gSel(plan.darkMax, 'No limit', v => { plan.darkMax = v; }, 'Hardest grade after dark'));
       const dl = Sun.daylight(plan.date);
       d.appendChild(field('Hardest grade after dark', dk, plan.darkMax ? `From dusk (about ${Sun.fmt(dl.set)}) until it's light again (about ${Sun.fmt(dl.rise)}), nothing harder than ${plan.darkMax}; harder routes get pulled into daylight.` : 'Optional. Caps the grade for climbing in the dark.'));
