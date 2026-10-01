@@ -31,6 +31,7 @@
   };
   const WHO = ['me', 'partner'];
   const TARGET_DEFAULT = { 24: { laps: 100, score: 12000, height: 5280 }, 12: { laps: 65, score: 8000, height: 3000 } };
+  const MANUAL_PACE = { conservative: 1.2, standard: 1, aggressive: 0.85 }; // lead-time multiplier for hand-built plans
   const UNIT = { laps: 'laps', score: 'points', height: 'feet' };
   let WALKW = 2.5;
   const START_AREA = 'The Park';
@@ -121,7 +122,7 @@
       if (r.type === 'trad') m = m * 1.35 + 3;
       const lt = pre ? pre.lt : light(plan, abs); if (lt !== 'day') m *= 1.15;
       const hrs = abs - plan.start; if (hrs > 12) m *= 1.1; if (hrs > 18) m *= 1.1;
-      return m * (plan.paceF || 1);
+      return m * (plan.manual ? (MANUAL_PACE[plan.intensity] || 1) : (plan.paceF || 1));
     }
     const locOf = a => a === CHECKIN ? CHECKIN_LOC : AREAS()[a];
     const placeName = a => a === CHECKIN ? CHECKIN_LOC.name : a;
@@ -293,7 +294,6 @@
         tour.zg = zg;
       }
       const nextZones = () => { const open = tour.filter(z => !WHO.every(k => stats[k].zones.has(z))); return new Set(open.slice(0, 2)); };
-      const dayHard = plan.format === '24' && !!plan.dayHard;
       const earlyHard = plan.format === '24' && !!plan.earlyHard; // harder climbs only in the first 12 hours
       const H = plan.horizon ?? 45; // minutes of climbing used to judge a wall
       let guard = 0;
@@ -316,12 +316,14 @@
             if (gu > DIVS[c.div].max || gu > ceil[k] + 0.01) continue;
             if (plan.reach !== false && reachBlocked(r, c)) continue;
             if (gu > c.os && (s.hardHour[hr] || 0) >= I.hard) continue;
-            if (dayHard && pre.lt !== 'day' && gu >= c.os) continue;
             const bucket = GU2(gradeLabel(r.gu, r.g));
             if (plan.gmin && bucket < GU2(plan.gmin)) continue;
             if (plan.gmax && bucket > GU2(plan.gmax)) continue;
             if (plan.darkMax && pre.lt !== 'day' && bucket > GU2(plan.darkMax)) continue; // hardest grade after dark
-            if (plan.warm && s.laps < (plan.warmN ?? 3) && bucket > Math.max(GU2(plan.warm), plan.gmin ? GU2(plan.gmin) : -99)) continue; // warm-up routes first
+            if (plan.warm) { // warm-up routes first, then ramp up one grade step every two routes
+              const wn = plan.warmN ?? 3, base = Math.max(GU2(plan.warm), plan.gmin ? GU2(plan.gmin) : -99);
+              if (bucket > base + (s.laps < wn ? 0 : 1 + Math.floor((s.laps - wn) / 2))) continue;
+            }
             const lim = plan.gradeMax && plan.gradeMax[gradeLabel(r.gu, r.g)]; if (lim != null && (s.grades[gradeLabel(r.gu, r.g)] || 0) >= lim) continue;
             if (earlyHard && tt - plan.start >= 12 && gu >= c.os) continue;
             who.push(k);
@@ -348,9 +350,12 @@
             if (plan.side.over60 && (r.ht || 0) >= 60) x *= 1.3;
             if (plan.side.soft && r.v && r.v.includes('soft')) x *= 1.15;
             if (r.v && r.v.includes('stiff')) x *= 0.85;
+            if (!gls.includes('score')) { // without a points goal, lean hard on mid and lower grades
+              const rel = GU2(gradeLabel(r.gu, r.g)) - cl[k].os;
+              x *= rel <= -5 ? 0.95 : rel <= -1 ? 1.2 : rel <= 0 ? 0.8 : 0.5;
+            }
             if (earlyHard && tt - plan.start < 12 && (r.gu ?? -6) >= cl[k].os - 1) x *= 1.25 + 0.15 * Math.max(0, (r.gu ?? -6) - cl[k].os);
             if (plan.darkMax && pre.lt === 'day' && GU2(gradeLabel(r.gu, r.g)) > GU2(plan.darkMax)) x *= 1.5; // get the routes you can't do in the dark done while it's light
-            if (dayHard && pre.lt === 'day' && (r.gu ?? -6) >= cl[k].os - 1) x *= 1.25 + 0.15 * Math.max(0, (r.gu ?? -6) - cl[k].os);
             v += x;
           }
           if (pre.lt !== 'day' && r.type === 'trad') v *= 0.8;
@@ -462,6 +467,7 @@
     // Build the plan at the slowest steady pace that still reaches the target.
     // paceF multiplies every lead's time: below 1 means faster than the base model, above 1 slower.
     function build(plan) {
+      plan.manual = false;
       let lo = 0.3, hi = 3, bestItems = null;
       plan.paceF = lo; optimize(plan, 0);
       if (!meets(plan)) { plan.unreachable = true; return; }
@@ -498,7 +504,8 @@
       if (!state.plans.length) { body.appendChild(el('h2', null, 'Plan')); body.appendChild(el('p', 'hint', 'Set your goals and the planner recommends a route-by-route plan for both of you. You can then edit it, check routes off on the day and see whether you are ahead or behind.')); const b = el('button', 'btn primary', 'Start a plan'); b.type = 'button'; b.onclick = () => { newPlan('24'); render(); }; body.appendChild(b); renderReference(body); return; }
       body.appendChild(top);
       renderSetup(body, plan);
-      if (plan.items.length) { renderSummary(body, plan); renderItems(body, plan); }
+      if (plan.items.length) renderSummary(body, plan);
+      if (plan.items.length || plan.manual) renderItems(body, plan);
       renderReference(body);
     }
 
@@ -592,10 +599,6 @@
       d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['reach', 'Skip routes too reachy']], { together: plan.together !== false, reach: plan.reach !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
       if (plan.format === '24') {
-        const lab = el('label', 'checkline'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!plan.dayHard;
-        cb.onchange = () => { plan.dayHard = cb.checked; save(); render(); };
-        lab.append(cb, el('span', null, 'Save harder climbs for daylight'));
-        d.appendChild(field('Daylight', lab, 'Routes at or above onsight get done in daylight; overnight sticks to routes below onsight.'));
         const lab2 = el('label', 'checkline'); const cb2 = el('input'); cb2.type = 'checkbox'; cb2.checked = !!plan.earlyHard;
         cb2.onchange = () => { plan.earlyHard = cb2.checked; save(); render(); };
         lab2.append(cb2, el('span', null, 'Harder climbs in the first 12 hours only'));
@@ -609,7 +612,13 @@
         go.disabled = true; go.textContent = 'Building…';
         setTimeout(() => { build(plan); save(); render(); ctx.onPlanChange(); }, 30);
       };
-      d.appendChild(go);
+      const mine = el('button', 'btn', 'Build it myself'); mine.type = 'button';
+      mine.onclick = () => {
+        if (plan.items.length && !confirm('Start an empty plan? This clears the current one.')) return;
+        plan.items = []; plan.manual = true; editing = null; save(); render(); ctx.onPlanChange();
+      };
+      const br = el('div', 'btnrow'); br.append(go, mine); d.appendChild(br);
+      d.appendChild(el('p', 'hint small', plan.manual ? `Hand-built plan: add walls and routes below. Timing uses your push level (${(INTENSITY[plan.intensity] || INTENSITY.standard).label}) for climbing and walking, plus check-ins and breaks.` : 'Or build it yourself: pick walls and routes, and the timing is worked out from your push level.'));
       body.appendChild(d);
     }
 
@@ -805,7 +814,7 @@
         if (row.sun === 'sun' && row.light === 'day') tags.appendChild(el('span', 'tag sun', 'Sun'));
         if (row.light !== 'day') tags.appendChild(el('span', 'tag night', row.light === 'night' ? 'Dark' : 'Dusk'));
         if (r.sp) tags.appendChild(el('span', 'tag special', (r.sp === 'E' ? 'East' : 'West') + ' end'));
-        if (r.type === 'trad') tags.appendChild(el('span', 'tag', 'Trad'));
+        tags.appendChild(el('span', 'tag ' + (r.type === 'trad' ? 'trad' : 'sport'), r.type === 'trad' ? 'Trad' : r.type === 'mixed' ? 'Mixed' : 'Sport'));
         main.appendChild(tags);
         main.onclick = () => { editing = editing === row.i ? null : row.i; render(); };
         const hd = dragHandle('Drag to reorder ' + r.name + ' within ' + r.area); const Gr = groups[groups.length - 1]; hd.addEventListener('pointerdown', e => startDrag(e, 'route', row.i, li, Gr));
@@ -828,6 +837,13 @@
       }
       body.appendChild(list);
       const add = el('div', 'btnrow');
+      const wsel = el('select'); wsel.setAttribute('aria-label', 'Add routes from a wall'); wsel.add(new Option(plan.items.length ? 'Add routes from a wall…' : 'Start at a wall…', ''));
+      const sideOrder = { West: 0, North: 1, East: 2, Valley: 3 }, sideOf = a => (comp().find(r => r.area === a) || {}).side || 'Valley';
+      const walls = [...new Set(comp().map(r => r.area))].filter(a => AREAS()[a]).sort((x, y) => (sideOrder[sideOf(x)] - sideOrder[sideOf(y)]) || ((linePos(AREAS()[x]) ?? 0) - (linePos(AREAS()[y]) ?? 0)));
+      let og = null, ls = null;
+      for (const a of walls) { const sd = sideOf(a); if (sd !== ls) { og = document.createElement('optgroup'); og.label = sd === 'Valley' ? 'Valley floor' : sd + ' side'; wsel.appendChild(og); ls = sd; } og.appendChild(new Option(a, a)); }
+      wsel.onchange = () => { if (wsel.value) openPicker(plan, plan.items.length, wsel.value); wsel.value = ''; };
+      body.appendChild(wsel); wsel.classList.add('wall-add');
       const b1 = el('button', 'btn', 'Add route at end'); b1.type = 'button'; b1.onclick = () => openPicker(plan, plan.items.length);
       const b2 = el('button', 'btn', 'Add break at end'); b2.type = 'button'; b2.onclick = () => { plan.items.push({ type: 'break', min: 15, label: 'Break' }); save(); render(); };
       add.append(b1, b2); body.appendChild(add);
@@ -838,7 +854,7 @@
       const d = $('#detail'); d.textContent = '';
       const tl = normRows(timeline(plan, plan.items, at));
       const head = el('header', 'd-head'); const t = el('div', 'd-title');
-      t.append(el('h2', null, wall ? 'Add a route at ' + wall : 'Add a route'), el('p', null, wall ? 'Routes on this wall that aren\'t in the plan yet' : `At about ${fmtAbs(plan, tl.t, true)}${tl.area ? ', near ' + tl.area : ''}`));
+      t.append(el('h2', null, wall ? 'Add a route at ' + wall : 'Add a route'), el('p', null, wall ? 'Tap routes to add them in order; close when done' : `At about ${fmtAbs(plan, tl.t, true)}${tl.area ? ', near ' + tl.area : ''}`));
       const close = el('button', 'd-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close'); close.onclick = () => d.close();
       head.append(t, close); d.appendChild(head);
       const q = el('input', 'search'); q.type = 'search'; q.placeholder = 'Search all routes'; q.style.margin = '0 16px 8px'; q.style.width = 'calc(100% - 32px)';
@@ -863,7 +879,12 @@
           const li = el('li', 'route');
           const whoTxt = c.who.length === WHO.length ? '' : ', ' + climber(plan, c.who[0]).name + ' only';
           li.append(el('span', 'grade ' + (ctx.feelOf(c.r) ? 'feel-' + ctx.feelOf(c.r) : ''), c.r.g), (() => { const m = el('span', 'mid'); m.append(el('span', 'name', c.r.name), el('span', 'sub', wall ? `${c.r.type || 'sport'}, ${c.r.ht || '?'} ft, about ${Math.round(c.mins - c.w)} min${whoTxt}` : `${c.r.area}, ${c.w ? Math.round(c.w) + ' min walk' : 'here'}, ${Math.round(c.mins - c.w)} min to climb${whoTxt}`)); return m; })(), el('span', 'right', c.r.pts));
-          li.onclick = () => { plan.items.splice(at, 0, { rid: c.r.id, who: c.who }); save(); d.close(); render(); ctx.onPlanChange(); };
+          li.onclick = () => {
+            plan.items.splice(at, 0, { rid: c.r.id, who: c.who }); save(); render(); ctx.onPlanChange();
+            if (!wall) return d.close();
+            at++; cands.splice(cands.indexOf(c), 1); li.remove(); // wall picker stays open so you can add several
+            if (!ol.querySelector('li.route')) d.close();
+          };
           ol.appendChild(li);
         }
       };

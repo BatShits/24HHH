@@ -33,6 +33,11 @@
       <input class="search" id="q" type="search" placeholder="Search routes, walls, numbers" autocomplete="off">
       <button class="filter-toggle" id="btnFilters" type="button" aria-expanded="false" aria-controls="filters">Filters <span id="filterCount"></span></button>
     </div>
+    <div class="quick">
+      <span class="quick-l">Grade</span>
+      <select id="qgmin" aria-label="Lowest grade (quick)"></select><span>to</span><select id="qgmax" aria-label="Highest grade (quick)"></select>
+      <label class="checkline"><input type="checkbox" id="qnoabove"><span>Hide above project</span></label>
+    </div>
     <div class="filters" id="filters" hidden>
       <fieldset>
         <legend>Grade</legend>
@@ -110,6 +115,19 @@
       <button type="button" id="play" aria-label="Play the plan in 15-minute steps" hidden>▶</button>
     </div>
     <p class="plan-banner" id="planBanner" hidden></p>
+    <details class="map-legend" id="mapLegend">
+      <summary>Legend</summary>
+      <ul>
+        <li><svg viewBox="0 0 40 10" aria-hidden="true"><path class="trail trail-case" d="M2 5H38"/><path class="trail trail-foot" d="M2 5H38"/></svg>Footpath</li>
+        <li><svg viewBox="0 0 40 10" aria-hidden="true"><path class="trail trail-case road" d="M2 5H38"/><path class="trail trail-road" d="M2 5H38"/></svg>Road</li>
+        <li class="lp"><svg viewBox="0 0 40 10" aria-hidden="true"><path class="seg light-day" d="M3 5H37"/></svg>Plan path, daylight</li>
+        <li class="lp"><svg viewBox="0 0 40 10" aria-hidden="true"><path class="seg light-dusk" d="M3 5H37"/></svg>Plan path, dusk</li>
+        <li class="lp"><svg viewBox="0 0 40 10" aria-hidden="true"><path class="seg light-night" d="M3 5H37"/></svg>Plan path, dark</li>
+        <li class="lp"><span class="lg-stop">3</span>Routes planned at a wall, first arrival time</li>
+        <li class="lp"><span class="lg-exp"></span>Where the plan has you at the clock time</li>
+        <li class="la"><span class="lg-dot sun"></span>Wall in sun <span class="lg-dot shade"></span>shade (at the clock time)</li>
+      </ul>
+    </details>
     <p class="map-attr">Map: USGS The National Map. Trails © OpenStreetMap contributors</p>
     <div class="sheet" id="areaSheet" hidden></div>
   </section>

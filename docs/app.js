@@ -74,6 +74,9 @@
     const x = pad + ui.hour / 24 * W;
     g.fillStyle = col('--cursor'); g.fillRect(x - 1.5, 0, 3, sky);
     g.beginPath(); g.arc(x, sky / 2, 6, 0, Math.PI * 2); g.fill();
+    // drag hint: arrows either side of the cursor
+    const ay = sky / 2;
+    for (const d of [-1, 1]) { const ax = x + d * 13; g.beginPath(); g.moveTo(ax + d * 6, ay); g.lineTo(ax, ay - 5); g.lineTo(ax, ay + 5); g.closePath(); g.fill(); }
   }
 
   function updateClock() {
@@ -87,18 +90,23 @@
 
   // ---------- filters ----------
   function buildGradeSelects() {
-    for (const id of ['gmin', 'gmax']) {
-      const s = $('#' + id); s.textContent = '';
+    // the filter panel and the quick bar above the list share ui.gmin / ui.gmax
+    for (const [id, key] of [['gmin', 'gmin'], ['gmax', 'gmax'], ['qgmin', 'gmin'], ['qgmax', 'gmax']]) {
+      const s = $('#' + id); if (!s) continue; s.textContent = '';
       for (const g of GRADES) s.add(new Option(g, g));
-      s.value = ui[id];
-      s.onchange = () => { ui[id] = s.value; save(); renderList(); };
+      s.value = ui[key];
+      s.onchange = () => { ui[key] = s.value; save(); for (const o of ['gmin', 'qgmin', 'gmax', 'qgmax']) { const e = $('#' + o); if (e) e.value = ui[o.replace('q', '')]; } syncChips(); renderList(); };
     }
+    const nb = $('#qnoabove');
+    if (nb) nb.onchange = () => { ui.fit = nb.checked ? [...new Set([...ui.fit, 'noabove'])] : ui.fit.filter(x => x !== 'noabove'); save(); syncChips(); renderList(); };
   }
   function syncChips() {
     $$('.chips[data-key]').forEach(box => {
       const k = box.dataset.key; const v = ui[k];
       box.querySelectorAll('button').forEach(b => b.setAttribute('aria-pressed', Array.isArray(v) ? v.includes(b.dataset.v) : v === b.dataset.v));
     });
+    if ($('#qnoabove')) $('#qnoabove').checked = ui.fit.includes('noabove');
+    for (const o of ['gmin', 'qgmin', 'gmax', 'qgmax']) { const e = $('#' + o); if (e && e.options.length) e.value = ui[o.replace('q', '')]; }
     const n = ['side', 'type', 'feel', 'sun', 'list', 'fit'].reduce((a, k) => a + ui[k].length, 0) + (ui.gmin !== defaults.gmin || ui.gmax !== defaults.gmax ? 1 : 0);
     $('#filterCount').textContent = n ? `(${n})` : '';
   }
@@ -177,7 +185,16 @@
     $('#count').textContent = `${list.length} of ${ROUTES.length} routes`;
     const ol = $('#routes'); ol.textContent = '';
     const frag = document.createDocumentFragment();
-    for (const r of list) {
+    // group by wall, walls in walking order round the canyon; the chosen sort applies within each wall
+    const wallOf = r => r.area || r.zone || 'Other';
+    const wallRank = {}; for (const r of ROUTES) { const w = wallOf(r); if (r.walk != null) wallRank[w] = Math.min(wallRank[w] ?? 1e9, r.walk); }
+    const groups = new Map();
+    for (const r of list) { const w = wallOf(r); if (!groups.has(w)) groups.set(w, []); groups.get(w).push(r); }
+    const ordered = [...groups.keys()].sort((a, b) => (wallRank[a] ?? 1e9) - (wallRank[b] ?? 1e9) || a.localeCompare(b));
+    const flat = [];
+    for (const w of ordered) flat.push({ head: w, n: groups.get(w).length, side: groups.get(w)[0].side }, ...groups.get(w));
+    for (const r of flat) {
+      if (r.head) { const h = el('li', 'wall-head'); h.append(el('span', 'wall-name', r.head), el('span', 'wall-meta', `${r.side ? (r.side === 'Valley' ? 'Valley floor' : r.side + ' side') + ', ' : ''}${r.n} route${r.n === 1 ? '' : 's'}`)); frag.appendChild(h); continue; }
       const li = el('li', 'route'); li.dataset.id = r.id; li.tabIndex = 0; li.setAttribute('role', 'button');
       const g = el('span', 'grade ' + (feelOf(r) ? 'feel-' + feelOf(r) : ''), r.g || '?');
       const mid = el('span', 'mid');
@@ -186,7 +203,7 @@
       if (r.tier === 'avoid for points') nm.appendChild(el('span', 'flag avoid', 'Avoid'));
       const fit = fitOf(r, profiles.me); if (fit && fit !== 'onsight') nm.appendChild(el('span', 'flag fit-' + fit, FITLABEL[fit]));
       const rch = reachOf(r, profiles.me); if (rch === 'high' || rch === 'moderate') nm.appendChild(el('span', 'flag reach-' + rch, 'Reachy'));
-      const sub = el('span', 'sub', [r.n ? 'No. ' + r.n : 'Not in comp', r.area || r.zone, r.type].filter(Boolean).join(', '));
+      const sub = el('span', 'sub', [r.n ? 'No. ' + r.n : 'Not in comp', r.type, r.ht ? r.ht + ' ft' : ''].filter(Boolean).join(', '));
       mid.append(nm, sub);
       const n = notes[r.id];
       if (n && (n.status || n.text)) mid.appendChild(el('span', 'mynote status-' + (n.status || 'note'), n.status ? STATUS.find(s => s[0] === n.status)[1] : 'Note'));
@@ -314,12 +331,13 @@
   function renderMap() {
     if (!map) return;
     $('#mapMode').textContent = ui.mapMode === 'plan' ? 'All' : 'Plan';
+    $('#mapLegend').classList.toggle('plan', ui.mapMode === 'plan');
     $('#play').hidden = !(ui.mapMode === 'plan' && planner && planner.span());
     if ($('#play').hidden && playTimer) { clearInterval(playTimer); playTimer = 0; $('#play').textContent = '▶'; }
     const pd = ui.mapMode === 'plan' && planner ? planner.mapData() : null;
     $('#planBanner').hidden = !(ui.mapMode === 'plan');
     if (ui.mapMode === 'plan') {
-      $('#planBanner').textContent = pd ? `${pd.plan.name}: ${pd.stops.length} walls, ${pd.nStops} stops. Path: gold in daylight, dotted after dark. Drag the clock to see where you should be.` : 'No plan yet. Build one in the Plan tab.';
+      $('#planBanner').textContent = pd ? `${pd.plan.name} · ${pd.stops.length} walls · ${pd.stops.reduce((a, s) => a + s.count, 0)} routes` : 'No plan yet. Build one in the Plan tab.';
       const marks = [];
       if (pd) {
         for (const s of pd.stops) {
