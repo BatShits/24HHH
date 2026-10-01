@@ -46,7 +46,7 @@ for i, r in enumerate(csv.DictReader(open(os.path.join(SRC, 'hcr_routes_master.c
         'sunflag': 1 if r.get('route_sun_notes') else 0,
         'zn': ZONE_OF.get(r['comp_zone']) if r['comp_num'] else None,
         'zp': 1 if r['comp_num'] and (ZONE_OF.get(r['comp_zone']) not in ZONE_CONFIRMED or r['comp_zone'] in ZONE_PROVISIONAL_WALLS) else 0,
-        'sp': 1 if r['comp_num'] and int(r['comp_num']) in SPECIALS else 0,
+        'sp': SPECIALS.get(int(r['comp_num'])) if r['comp_num'] else None,
     }.items() if v not in (None, '')})
 areas = {}
 for zone, (name, g) in NF_SPLIT.items():

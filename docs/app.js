@@ -314,6 +314,8 @@
   function renderMap() {
     if (!map) return;
     $('#mapMode').textContent = ui.mapMode === 'plan' ? 'All' : 'Plan';
+    $('#play').hidden = !(ui.mapMode === 'plan' && planner && planner.span());
+    if ($('#play').hidden && playTimer) { clearInterval(playTimer); playTimer = 0; $('#play').textContent = '▶'; }
     const pd = ui.mapMode === 'plan' && planner ? planner.mapData() : null;
     $('#planBanner').hidden = !(ui.mapMode === 'plan');
     if (ui.mapMode === 'plan') {
@@ -521,6 +523,7 @@
     ui.tab = t; save();
     $$('.view').forEach(v => v.hidden = v.dataset.view !== t);
     $$('.tabs button').forEach(b => b.dataset.tab === t ? b.setAttribute('aria-current', 'page') : b.removeAttribute('aria-current'));
+    if (t !== 'map' && playTimer) stopPlay();
     if (t === 'map') { initMap(); renderMap(); requestAnimationFrame(() => map.render()); }
     if (t === 'plan') renderPlan();
     if (t === 'me') { renderProfiles(); noteStatus(); offlineStatus(); }
@@ -542,6 +545,20 @@
     ui.date = ct.getFullYear() + '-' + String(ct.getMonth() + 1).padStart(2, '0') + '-' + String(ct.getDate()).padStart(2, '0');
     ui.hour = Math.round((ct.getHours() + ct.getMinutes() / 60) * 4) / 4; save(); onTime();
   };
+  // play the plan: step the clock 15 minutes at a time from the start of the event (or from the current time if it's inside the event)
+  let playTimer = 0;
+  const stopPlay = () => { clearInterval(playTimer); playTimer = 0; $('#play').textContent = '▶'; $('#play').setAttribute('aria-label', 'Play the plan in 15-minute steps'); onTime(); };
+  $('#play').onclick = () => {
+    if (playTimer) return stopPlay();
+    const sp = planner && planner.span(); if (!sp) return;
+    let T = sp.now >= sp.start && sp.now < sp.end - 0.01 ? Math.round(sp.now * 4) / 4 : sp.start;
+    const [y, m, d] = sp.date.split('-').map(Number);
+    const setT = () => { const day = new Date(Date.UTC(y, m - 1, d + Math.floor(T / 24))); ui.date = day.toISOString().slice(0, 10); ui.hour = T - Math.floor(T / 24) * 24; save(); updateClock(); renderMap(); };
+    $('#play').textContent = '❚❚'; $('#play').setAttribute('aria-label', 'Pause');
+    setT();
+    playTimer = setInterval(() => { T += 0.25; if (T > sp.end) return stopPlay(); setT(); }, 450);
+  };
+  $('#hour').addEventListener('input', () => { if (playTimer) stopPlay(); });
   window.addEventListener('resize', () => requestAnimationFrame(drawDial));
   new ResizeObserver(() => document.documentElement.style.setProperty('--clock-h', $('#clock').offsetHeight + 'px')).observe($('#clock'));
 

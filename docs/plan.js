@@ -37,7 +37,7 @@
   // Canyon crossings: West + North walls are one side, East walls the other; the valley floor is neutral.
   const MAX_CROSS = { 12: 1, 24: 2 };
   const CROSS_PEN = [30, 240]; // minutes-equivalent for the first and second crossing (one is best)
-  const TUNE = { move: 8, back: 60, valley: 6, reverse: 60, zone: 500, special: 900 }; // minutes-equivalent: any move, returning to a wall already left, valley detours
+  const TUNE = { turns: 1, move: 8, back: 60, valley: 6, reverse: 60, zone: 500, special: 900 }; // minutes-equivalent: any move, returning to a wall already left, valley detours
   // Position along the cliff line, measured round the horseshoe from Crackhouse Alley (southwest) to The Far East (southeast).
   const CANYON_C = { lat: 36.0048, lon: -93.2905 };
   const linePos = a => { if (!a || a.lat == null) return null; const ang = Math.atan2(a.lat - CANYON_C.lat, (a.lon - CANYON_C.lon) * Math.cos(CANYON_C.lat * Math.PI / 180)) * 180 / Math.PI; return ((250 - ang) % 360 + 360) % 360; };
@@ -185,7 +185,7 @@
       for (const k of who) {
         const s = stats[k]; if (s.done.has(r.id)) continue;
         s.done.add(r.id); s.laps++; s.pts += r.pts || 0; s.ft += r.ht || 0; if (r.type === 'trad') s.trad++;
-        if (r.zn != null) s.zones.add(r.zn); if (r.sp) s.specials.add(r.n); if (r.side === 'East') s.east = true;
+        if (r.zn != null) s.zones.add(r.zn); if (r.sp) s.specials.add(r.sp); if (r.side === 'East') s.east = true;
         s.hours.add(hr);
       }
     }
@@ -242,7 +242,7 @@
       const GRP = {}; for (const r of pool) if (GRP[r.area] === undefined) GRP[r.area] = sideGroup(r.side);
       const POS = {}; for (const a of Object.keys(byArea)) POS[a] = GRP[a] ? linePos(AREAS()[a]) : null;
       const WZ = {}; for (const r of pool) if (r.zn != null) (WZ[r.area] ||= new Set()).add(r.zn);
-      let dir = 0, lastPos = null; // sweep direction along the cliff line; reversing costs extra
+      let dir = 0, lastPos = null, turns = 0; // sweep direction along the cliff line; reversing costs extra and is limited
       const maxCross = MAX_CROSS[plan.format] ?? 1;
       // side state carried over from any kept items
       let curG = null, crossings = 0; const left = new Set(); let prevA = START_AREA;
@@ -324,7 +324,7 @@
               x += (r.pts || 0) * (goal === 'golden' ? 0.6 : 0.2);
               const needZone = plan.format === '24' || goal === 'golden' || s.zones.size < 12;
               if (r.zn != null && needZone && !s.zones.has(r.zn) && !(seen && seen.has(k + 'z' + r.zn))) x += !tour.length || nz.has(r.zn) ? TUNE.zone : 150;
-              if (r.sp && !s.specials.has(r.n)) x += !tour.length || nz.has(r.zn) || s.zones.has(r.zn) ? TUNE.special : 150; // don't leave a special's wall without it
+              if (r.sp && !s.specials.has(r.sp)) x += !tour.length || nz.has(r.zn) || s.zones.has(r.zn) ? TUNE.special : 150; // don't leave a special's wall without it
               if (goal === 'golden' && r.type === 'trad' && s.trad < F.trad.golden) x += 220;
             }
             if (plan.side.east && !s.east && r.side === 'East' && !(seen && seen.has(k + 'east'))) x += goal === 'score' ? 300 : 900;
@@ -337,14 +337,17 @@
           if (pre.lt !== 'day' && r.type === 'trad') v *= 0.8;
           return { r, who, mins, v };
         };
-        // score each wall: best routes there for about H minutes, against the walk to reach it
+        // score each wall: best routes there for about H minutes, against the walk to reach it.
+        // First pass keeps the sweep (at most TUNE.turns turnarounds per side); relax only if nothing fits.
         let best = null, bestRate = 0;
+        for (const strict of [true, false]) { if (best) break;
         for (const [a, rs] of Object.entries(byArea)) {
           const w = walkMin(area, a, plan);
           if (t + (w + 5) / 60 > end) continue;
           const g = GRP[a]; let pen = 0;
           if (g && curG && g !== curG) {
             if (crossings >= maxCross) continue;
+            if (crossings >= 1 && end - t < 3) continue; // no second crossing late in the event
             if (tourSide && tourSide === curG) continue;
             pen += CROSS_PEN[Math.min(crossings, CROSS_PEN.length - 1)];
           } else if (tourSide && g && g !== tourSide && !curG) continue;
@@ -352,7 +355,9 @@
           if (openTour.length && WZ[a] && !WZ[a].has(openTour[0]) && [...WZ[a]].some(z => openTour.includes(z))) continue;
           if (a !== area) pen += TUNE.move;          // every move costs setup time
           if (left.has(a)) pen += TUNE.back;
-          if (dir && POS[a] != null && lastPos != null && Math.abs(POS[a] - lastPos) > 2 && Math.sign(POS[a] - lastPos) !== dir) pen += TUNE.reverse;        // going back to a wall already left
+          const rev = dir && POS[a] != null && lastPos != null && Math.abs(POS[a] - lastPos) > 2 && Math.sign(POS[a] - lastPos) !== dir;
+          if (rev) { if (strict && turns >= TUNE.turns) continue; pen += TUNE.reverse; }
+          if (strict && left.has(a) && !rev && a !== area) continue; // never double back past a wall without turning round        // going back to a wall already left
           if (GRP[a] === null && a !== area) pen += TUNE.valley; // detours onto the valley floor
           let sunF = 1;
           if (plan.avoidSun !== false && hh >= 10.5 && hh <= 17.5) { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.55 : st === 'partial' ? 0.8 : 1; }
@@ -367,15 +372,17 @@
             val += e2.v; used += e2.mins;
             for (const k of e2.who) { if (o.r.zn != null) seen.add(k + 'z' + o.r.zn); if (o.r.side === 'East') seen.add(k + 'east'); }
           }
+          // in the strict pass, don't walk more than a few minutes for a single short climb (unless the zone tour needs that wall)
+          if (strict && a !== area && w > 4 && used < 20 && !(openTour.length && WZ[a] && WZ[a].has(openTour[0]))) continue;
           const rate = val * sunF / ((plan.walkWeight ?? WALKW) * w + used + pen);
           if (rate > bestRate) { bestRate = rate; best = { first: opts[0], w, a }; }
-        }
+        } }
         if (!best) { items.push({ type: 'break', min: 10, label: 'Rest' }); t += 10 / 60; continue; }
         const pick = best.first;
         items.push({ rid: pick.r.id, who: pick.who });
         t += (best.w + pick.mins) / 60;
-        { const g = GRP[pick.r.area]; if (g && curG && g !== curG) { crossings++; dir = 0; } if (g) curG = g; if (pick.r.area !== area) left.add(area);
-          const q = POS[pick.r.area]; if (q != null) { if (lastPos != null && Math.abs(q - lastPos) > 2) dir = Math.sign(q - lastPos); lastPos = q; } }
+        { const g = GRP[pick.r.area]; if (g && curG && g !== curG) { crossings++; dir = 0; turns = 0; } if (g) curG = g; if (pick.r.area !== area) left.add(area);
+          const q = POS[pick.r.area]; if (q != null) { if (lastPos != null && Math.abs(q - lastPos) > 2) { const d = Math.sign(q - lastPos); if (dir && d !== dir) turns++; dir = d; } lastPos = q; } }
         area = pick.r.area;
         for (const k of pick.who) { const s = stats[k]; if ((pick.r.gu ?? -6) > cl[k].os) s.hardHour[hr] = (s.hardHour[hr] || 0) + 1; }
         applyRoute(plan, stats, pick.r, pick.who, t);
@@ -477,7 +484,7 @@
       const g = el('select'); for (const [k, v] of Object.entries(GOALS)) g.add(new Option(v, k)); g.value = plan.goal; g.onchange = () => { plan.goal = g.value; save(); render(); };
       const F = FORMATS[plan.format];
       const gHint = { score: `Favors soft, shaded, high-point routes. ${F.pts.qualify.toLocaleString()} points (bonuses included) qualifies for next year.`, laps: `Fastest routes you can lead cleanly. ${F.laps.qualify} laps qualifies for next year.`, height: F.ft ? `Favors tall routes. ${F.ft.toLocaleString()} ft also qualifies for next year.` : 'Favors tall routes.',
-        full: `${F.laps.full} routes, ${plan.format === '24' ? 'all 24' : '12'} zones, Hickadelic Jazzgrass and Orange Crush.`, golden: `${F.laps.golden} routes, ${F.trad.golden} trad, ${F.pts.golden.toLocaleString()} points and Full Horseshoe.`,
+        full: `${F.laps.full} routes, ${plan.format === '24' ? 'all 24' : '12'} zones, and one end route at each end of the horseshoe (west: Hickadelic Jazzgrass, Meatcake, Catholic Boat, Elephant Ear or Wuwei; east: Orange Crush, Montezuma's Toe or Revenge, Purple Nehi or Supersoul Sureshot).`, golden: `${F.laps.golden} routes, ${F.trad.golden} trad, ${F.pts.golden.toLocaleString()} points and Full Horseshoe.`,
         qualify: 'Plans for the Full Horseshoe, the cheapest qualifying path for most teams.' }[plan.goal];
       d.appendChild(field('Optimize for', g, gHint));
       if (UNIT[plan.goal]) {
@@ -602,7 +609,7 @@
         tags.appendChild(el('span', 'who', whoLabel(row.who)));
         if (row.sun === 'sun' && row.light === 'day') tags.appendChild(el('span', 'tag sun', 'Sun'));
         if (row.light !== 'day') tags.appendChild(el('span', 'tag night', row.light === 'night' ? 'Dark' : 'Dusk'));
-        if (r.sp) tags.appendChild(el('span', 'tag special', 'Special'));
+        if (r.sp) tags.appendChild(el('span', 'tag special', (r.sp === 'E' ? 'East' : 'West') + ' end'));
         if (r.type === 'trad') tags.appendChild(el('span', 'tag', 'Trad'));
         main.appendChild(tags);
         main.onclick = () => { editing = editing === row.i ? null : row.i; render(); };
@@ -723,6 +730,6 @@
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
+    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
   };
 })();
