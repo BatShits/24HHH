@@ -286,5 +286,7 @@ h4 { margin: 1em 0 .2em; font-size: .95rem; }
 .checkline { display: flex; align-items: center; gap: 10px; min-height: 44px; }
 .checkline input { width: 24px; height: 24px; margin: 0; accent-color: var(--soft); }
 .trail { fill: none; stroke-linecap: round; stroke-linejoin: round; pointer-events: none; }
-.trail-foot { stroke: #8a5a2b; stroke-width: 2; stroke-dasharray: 5 4; opacity: .85; }
-.trail-road { stroke: #6b6b6b; stroke-width: 3; opacity: .7; }
+.trail-case { stroke: #fff; stroke-width: 6; opacity: .8; }
+.trail-case.road { stroke-width: 7; }
+.trail-foot { stroke: #c2185b; stroke-width: 3; stroke-dasharray: 7 4; }
+.trail-road { stroke: #4a4a4a; stroke-width: 4; }

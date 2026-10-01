@@ -306,7 +306,10 @@
   // trails from OpenStreetMap: footpaths dashed, roads solid
   function trailLines() {
     if (!TRAILS) return [];
-    return TRAILS.lines.map(l => ({ pts: l.pts, cls: 'trail ' + (/footway|path|steps|track/.test(l.t) ? 'trail-foot' : 'trail-road') }));
+    const foot = l => /footway|path|steps|track/.test(l.t);
+    // white casing under every line so trails stand out from the topo contours and the aerial photo
+    return [...TRAILS.lines.map(l => ({ pts: l.pts, cls: 'trail trail-case' + (foot(l) ? '' : ' road') })),
+      ...TRAILS.lines.map(l => ({ pts: l.pts, cls: 'trail ' + (foot(l) ? 'trail-foot' : 'trail-road') }))];
   }
   function renderMap() {
     if (!map) return;
