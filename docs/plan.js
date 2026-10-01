@@ -840,7 +840,7 @@
         tags.append(el('span', 'pts', r.pts));
         tags.appendChild(el('span', 'who', whoLabel(row.who)));
         if (row.sun === 'sun' && row.light === 'day') tags.appendChild(el('span', 'tag sun', 'Sun'));
-        if (row.light !== 'day') tags.appendChild(el('span', 'tag night', row.light === 'night' ? 'Dark' : 'Dusk'));
+        if (row.light !== 'day') tags.appendChild(el('span', 'tag night', row.light === 'night' ? 'Dark' : dh(plan, row.t0).hour < 12 ? 'Dawn' : 'Dusk'));
         if (r.sp) tags.appendChild(el('span', 'tag special', (r.sp === 'E' ? 'East' : 'West') + ' end'));
         tags.appendChild(el('span', 'tag ' + (r.type === 'trad' ? 'trad' : 'sport'), r.type === 'trad' ? 'Trad' : r.type === 'mixed' ? 'Mixed' : 'Sport'));
         main.appendChild(tags);
