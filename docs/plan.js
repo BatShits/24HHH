@@ -471,9 +471,33 @@
         default: return a.qual;
       }
     }
+    // Contingency: each goal should be done this many hours before the end (lost phone, a queue for a must-have route...).
+    const BUFFER = { full: { 24: 4, 12: 2 }, qualify: { 24: 4, 12: 2 }, golden: { 24: 2, 12: 1 }, laps: { 24: 2, 12: 1 }, score: { 24: 2, 12: 1 }, height: { 24: 2, 12: 1 }, trad: { 24: 2, 12: 1 } };
+    const bufferOf = (plan, g) => ((BUFFER[g] || {})[plan.format] || 0) * (plan.bufF ?? 1);
+    // when each goal is first met by both climbers (absolute hours), replaying the plan route by route
+    function goalTimes(plan, tl) {
+      tl = tl || timeline(plan, plan.items);
+      const gs = goalsOf(plan), out = Object.fromEntries(gs.map(g => [g, null])); if (!gs.length) return out;
+      const st = blankStats(plan), F = FORMATS[plan.format];
+      for (const row of tl.rows) {
+        if (row.kind !== 'route') continue;
+        applyRoute(plan, st, row.r, row.who, row.t1);
+        const hrNow = Math.floor(row.t1 - plan.start);
+        for (const g of gs) {
+          if (out[g] != null) continue;
+          const ok = WHO.every(k => { const s = st[k], a = achievements(plan, s);
+            if (g === 'score') { // count the One Each Hour bonus if every hour so far has a route (it's on track)
+              const onTrack = F.hourBonus && Array.from({ length: hrNow }, (_, h) => s.hours.has(h)).every(Boolean);
+              return s.pts + (s.east ? 300 : 0) + (onTrack ? F.hourBonus : 0) >= targetOf(plan, g); }
+            return goalMet(plan, g, s, a); });
+          if (ok) out[g] = row.t1;
+        }
+      }
+      return out;
+    }
     function meets(plan) {
-      const tl = timeline(plan, plan.items);
-      return WHO.every(k => { const s = tl.stats[k], a = achievements(plan, s); return goalsOf(plan).every(g => goalMet(plan, g, s, a)); });
+      const end = plan.start + FORMATS[plan.format].dur, gt = goalTimes(plan);
+      return goalsOf(plan).every(g => gt[g] != null && gt[g] <= end - bufferOf(plan, g) + 1e-6);
     }
     const goalText = plan => goalsOf(plan).map(g => GOALS[g].replace(/ \(.*\)/, '').toLowerCase() + (targetOf(plan, g) ? ' ' + targetOf(plan, g).toLocaleString() : '')).join(' + ');
     // Build the plan at the slowest steady pace that still reaches the target.
@@ -481,8 +505,10 @@
     function build(plan) {
       plan.manual = false;
       let lo = 0.3, hi = 3, bestItems = null;
-      plan.paceF = lo; optimize(plan, 0);
-      if (!meets(plan)) { plan.unreachable = true; return; }
+      // full contingency buffer if possible, else half, else none
+      let ok = false;
+      for (const f of [1, 0.5, 0]) { plan.bufF = f; plan.paceF = lo; optimize(plan, 0); if (meets(plan)) { ok = true; break; } }
+      if (!ok) { plan.unreachable = true; return; }
       plan.unreachable = false; bestItems = plan.items;
       for (let i = 0; i < 8; i++) {
         const mid = (lo + hi) / 2; plan.paceF = mid; optimize(plan, 0);
@@ -799,6 +825,15 @@
       const letter = pct >= 92 ? 'A' : pct >= 88 ? 'B' : pct >= 84 ? 'C' : pct >= 80 ? 'D' : 'F';
       const hm = m => m >= 60 ? `${Math.floor(m / 60)} h ${Math.round(m % 60)} min` : `${Math.round(m)} min`;
       const teamRow = (label, text, title) => { const tr = el('tr', 'team'); const td = el('td', null, text); td.colSpan = WHO.length; if (title) tr.title = title; tr.append(el('th', null, label), td); tbl.appendChild(tr); };
+      { const gt = goalTimes(plan, tl), gs = goalsOf(plan), end = plan.start + F.dur;
+        if (gs.length) {
+          const times = gs.map(g => gt[g]); const last = times.some(x => x == null) ? null : Math.max(...times);
+          const aim = Math.max(...gs.map(g => (BUFFER[g] || {})[plan.format] || 0));
+          const spare = last == null ? null : end - last;
+          teamRow('Goals done', last == null ? 'Not reached' : `${fmtAbs(plan, last, true)} · ${spare.toFixed(1)} h spare (aim ${aim} h)`,
+            gs.map(g => `${GOALS[g].replace(/ \(.*\)/, '')}: ${gt[g] == null ? 'not reached' : fmtAbs(plan, gt[g], true)}`).join('; '));
+          if (last != null && spare < aim - 0.05) sec.appendChild(el('p', 'warn', `Only ${spare.toFixed(1)} h spare after your goals (aim ${aim} h). There's little room for a lost phone or a queue at a must-have route; a harder push level, a higher division or a lower target would buy time.`));
+        } }
       teamRow('Efficiency', `${letter} · ${Math.round(pct)}% climbing`, 'A: 92%+ of moving time climbing, B: 88%+, C: 84%+, D: 80%+, F: under 80%. Breaks and check-in stops are left out; walks to check-in count.');
       teamRow('Walk : climb', `1 : ${walkM ? (climbM / walkM).toFixed(1) : '∞'} (${hm(walkM)} walking, ${hm(climbM)} climbing)`);
       const grid = el('div', 'sumgrid'); grid.append(tbl, gradeChart(plan, tl)); sec.appendChild(grid);
