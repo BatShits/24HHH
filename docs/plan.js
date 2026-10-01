@@ -32,6 +32,8 @@
   };
   const WHO = ['me', 'partner'];
   const TARGET_DEFAULT = { 24: { laps: 100, score: 12000, height: 5280, trad: 55 }, 12: { laps: 65, score: 8000, height: 3000, trad: 40 } };
+  const PATH_MODES = ['loopW', 'loopE', 'uE', 'uW'];
+  const PATH_WINDOW = 2; // how many climbable walls ahead the planner may pick from
   const IDLE_LABEL = 'Nothing left that fits your settings';
   const MANUAL_PACE = { conservative: 1.2, standard: 1, aggressive: 0.85 }; // lead-time multiplier for hand-built plans
   const UNIT = { laps: 'laps', score: 'points', height: 'feet', trad: 'trad laps' };
@@ -258,6 +260,25 @@
       const forced = (plan.startWalls || []).filter(a => byArea[a]);
       let fi = items.length ? forced.length : 0, fArr = t; // fArr: when we reached the current wall
       const tourFrom = fi < forced.length ? forced[forced.length - 1] : area, tourG = fi < forced.length ? (GRP[tourFrom] || curG) : curG;
+      // THE PATH comes first: one loop round the horseshoe (crossing at the top), decided up front; routes are then picked
+      // wall by wall along it, moving forward only. Turning back along the path is allowed only when the way ahead has
+      // nothing left (at most once on the 12-hour, twice on the 24-hour).
+      const firstSide = tourG || (() => {
+        const sp = sunPref(plan), h = dh(plan, t).hour;
+        if (sp === 'shade') return h < 13 ? 'E' : 'W';   // East side is shady in the morning, West/North have tree cover later
+        if (sp === 'sun') return h < 12 ? 'W' : 'E';
+        return walkMin(START_AREA, 'Crackhouse Alley', plan) <= walkMin(START_AREA, 'The Far East', plan) ? 'W' : 'E';
+      })();
+      // path shapes: a loop round the top (W first or E first), or a U through the valley floor (cross at the south end)
+      const sideWalls = Object.keys(byArea).filter(a => GRP[a] && POS[a] != null).sort((x, y) => POS[x] - POS[y]);
+      const Wsd = sideWalls.filter(a => GRP[a] === 'W'), Esd = sideWalls.filter(a => GRP[a] === 'E');
+      const mode = plan.pathMode || (firstSide === 'E' ? 'loopE' : 'loopW');
+      const PATH = mode === 'loopW' ? sideWalls.slice() : mode === 'loopE' ? sideWalls.slice().reverse()
+        : mode === 'uE' ? [...Esd, ...Wsd] : [...Wsd.slice().reverse(), ...Esd.slice().reverse()];
+      // valley-floor walls (The Park, Carrion Cube) sit off the loop: allowed any time, with the valley-detour penalty
+      const PIDX = Object.fromEntries(PATH.map((a, i) => [a, i]));
+      let pos = items.length && PIDX[area] != null ? PIDX[area] : -1, pdir = 1, flips = 0;
+      const maxFlips = plan.format === '24' ? 2 : 1;
       // coverage goals: plan a walking tour through every zone first (nearest neighbour + 2-opt), then follow it
       let tour = [];
       if (goal === 'full' || goal === 'golden') {
@@ -271,28 +292,14 @@
         let zones = Object.keys(rep).map(Number).filter(z => !WHO.every(k => stats[k].zones.has(z)));
         if (need === 12) { // 12-hour: the 12 zones nearest the start, plus the specials' zones
           const sp = pool.filter(r => r.sp).map(r => r.zn);
-          zones.sort((a, b) => walkMin(START_AREA, rep[a], plan) - walkMin(START_AREA, rep[b], plan));
+          zones.sort((a, b) => (PIDX[rep[a]] ?? 99) - (PIDX[rep[b]] ?? 99));
           zones = [...new Set([...sp, ...zones])].slice(0, Math.max(12, sp.length));
         }
         // one crossing: finish every zone on one side, then cross once. Start on the side that's in shade first
         // (east-facing West side is shady in the afternoon, west-facing East side in the morning), or where we already are.
         const zg = z => GRP[rep[z]];
-        const first = tourG || (dh(plan, t).hour < 10 ? 'E' : 'W'), second = first === 'W' ? 'E' : 'W';
-        const segs = [zones.filter(z => zg(z) !== second), zones.filter(z => zg(z) === second)];
-        let cur = tourFrom;
-        for (const seg of segs) {
-          const start = cur, todo = new Set(seg); let part = [];
-          while (todo.size) { let bz = null, bd = 1e9; for (const z of todo) { const d = walkMin(cur, rep[z], plan); if (d < bd) { bd = d; bz = z; } } part.push(bz); todo.delete(bz); cur = rep[bz]; }
-          const cost = tr => tr.reduce((acc, z, i) => acc + walkMin(i ? rep[tr[i - 1]] : start, rep[z], plan), 0);
-          for (let pass = 0, improved = true; improved && pass < 30; pass++) {
-            improved = false;
-            for (let i = 0; i < part.length - 1; i++) for (let j = i + 1; j < part.length; j++) {
-              const nt = part.slice(0, i).concat(part.slice(i, j + 1).reverse(), part.slice(j + 1));
-              if (cost(nt) + 0.01 < cost(part)) { part = nt; improved = true; }
-            }
-          }
-          tour.push(...part); if (part.length) cur = rep[part[part.length - 1]];
-        }
+        // zones in the order the path reaches them
+        tour.push(...zones.sort((a, b) => (PIDX[rep[a]] ?? 99) - (PIDX[rep[b]] ?? 99)));
         tour.zg = zg;
       }
       const nextZones = () => { const open = tour.filter(z => !WHO.every(k => stats[k].zones.has(z))); return new Set(open.slice(0, 2)); };
@@ -376,13 +383,16 @@
           if (area !== forced[fi] || t - fArr < H / 60) allowed = new Set([forced[fi]]); // at least ~45 min of climbing at each chosen wall
           else if (fi + 1 < forced.length) allowed = new Set([forced[fi], forced[fi + 1]]);
         }
-        for (const strict of [true, false]) { if (best) break;
+        // pass 0: strict (forward along the path, next few walls); 1: relaxed, may turn back if nothing ahead fits (limited);
+        // 2: last resort before idling, may turn back regardless
+        for (const mode of [0, 1, 2]) { if (best) break; const strict = mode === 0;
+        const cs = [];
         for (const [a, rs] of Object.entries(byArea)) {
           if (allowed && !allowed.has(a)) continue;
           const isF = !!allowed;
           const w = walkMin(area, a, plan);
           if (t + (w + 5) / 60 > end) continue;
-          const g = GRP[a]; let pen = 0;
+          const g = GRP[a]; let pen = 0, back = false;
           if (isF) { if (g && curG && g !== curG) pen += CROSS_PEN[0]; }
           else if (g && curG && g !== curG) {
             if (crossings >= maxCross) continue;
@@ -391,13 +401,20 @@
             pen += CROSS_PEN[Math.min(crossings, CROSS_PEN.length - 1)];
           } else if (tourSide && g && g !== tourSide && !curG) continue;
           if (!isF) {
+          // coverage pacing: with tour zones still open, don't linger at a finished wall past its share of the time left
+          if (a === area && openTour.length && !(WZ[a] && openTour.some(z => WZ[a].has(z)))) {
+            const deadline = end - Math.max(...gls.map(g => bufferOf(plan, g))), perZone = Math.max(0.25, (deadline - t) / (openTour.length + 1));
+            if (t - fArr > perZone) continue;
+          }
           // coverage plans follow the zone tour in order: no skipping ahead to a later zone's wall
           if (openTour.length && WZ[a] && !WZ[a].has(openTour[0]) && [...WZ[a]].some(z => openTour.includes(z))) continue;
           if (a !== area) pen += TUNE.move;          // every move costs setup time
           if (left.has(a)) pen += TUNE.back;
-          const rev = dir && POS[a] != null && lastPos != null && Math.abs(POS[a] - lastPos) > 2 && Math.sign(POS[a] - lastPos) !== dir;
-          if (rev) { if (strict && turns >= TUNE.turns) continue; pen += TUNE.reverse; }
-          if (strict && left.has(a) && !rev && a !== area) continue; // never double back past a wall without turning round
+          // forward only along the path; turning back only when nothing ahead fits (relaxed pass), and only a few times
+          if (a !== area && PIDX[a] != null) {
+            const ahead = pdir > 0 ? PIDX[a] > pos : PIDX[a] < pos, resume = PIDX[a] === pos; // resume: back to the wall we left for check-in
+            if (!ahead && !resume) { if (strict || (mode === 1 && flips >= maxFlips)) continue; pen += TUNE.reverse; back = true; }
+          }
           }
           if (GRP[a] === null && a !== area) pen += TUNE.valley; // detours onto the valley floor
           let sunF = 1;
@@ -419,8 +436,19 @@
           // in the strict pass, don't walk more than a few minutes for a single short climb (unless the zone tour needs that wall)
           if (strict && !isF && a !== area && w > 4 && used < 20 && !(openTour.length && WZ[a] && WZ[a].has(openTour[0]))) continue;
           const rate = val * sunF / ((plan.walkWeight ?? WALKW) * w + used + pen);
-          if (rate > bestRate) { bestRate = rate; best = { first: opts[0], w, a }; }
-        } }
+          cs.push({ rate, first: opts[0], w, a, back });
+        }
+        // strict pass: of the walls ahead on the path, only the next PATH_WINDOW that still have something to climb
+        let pick2 = cs;
+        if (strict && !allowed) {
+          const fw = cs.filter(c => c.a !== area && PIDX[c.a] != null && PIDX[c.a] !== pos && (pdir > 0 ? PIDX[c.a] > pos : PIDX[c.a] < pos))
+            .sort((x, y) => Math.abs(PIDX[x.a] - pos) - Math.abs(PIDX[y.a] - pos));
+          const ok = new Set(fw.slice(0, PATH_WINDOW).map(c => c.a));
+          pick2 = cs.filter(c => !fw.includes(c) || ok.has(c.a));
+        }
+        if (!strict && pick2.some(c => !c.back)) pick2 = pick2.filter(c => !c.back); // only turn back if nothing ahead fits
+        for (const c of pick2) if (c.rate > bestRate) { bestRate = c.rate; best = c; }
+        }
         if (!best && fi < forced.length) { fi++; continue; } // a chosen wall with nothing (more) to climb: move on
         if (!best) { // nothing climbable fits the settings right now: one idle block, not a string of rests
           const last = items[items.length - 1];
@@ -430,6 +458,9 @@
         if (fi < forced.length) { if (best.a === forced[fi + 1]) fi++; else if (area === forced[forced.length - 1] && fi === forced.length - 1 && best.a !== area) fi = forced.length; }
         const pick = best.first;
         if (pick.r.area !== area) fArr = t + best.w / 60;
+        { const q = PIDX[pick.r.area]; if (q != null) {
+            if (!allowed && pos >= 0 && q !== pos && (pdir > 0 ? q < pos : q > pos)) { flips++; pdir = -pdir; } // turned back along the path
+            pos = q; } }
         items.push({ rid: pick.r.id, who: pick.who });
         t += (best.w + pick.mins) / 60;
         { const g = GRP[pick.r.area]; if (g && curG && g !== curG) { crossings++; dir = 0; turns = 0; } if (g) curG = g; if (pick.r.area !== area) left.add(area);
@@ -505,6 +536,18 @@
     function build(plan) {
       plan.manual = false;
       let lo = 0.3, hi = 3, bestItems = null;
+      // pick the path shape first: the one that reaches the goals with the least walking
+      if (!(plan.startWalls || []).length) {
+        let bestMode = null, bestScore = Infinity;
+        for (const m of PATH_MODES) {
+          plan.pathMode = m; plan.bufF = 1;
+          for (const pf of [1, 0.6]) { plan.paceF = pf; optimize(plan, 0); if (meets(plan)) break; }
+          const tl = timeline(plan, plan.items); let w = 0; for (const r of tl.rows) if (r.kind === 'walk') w += (r.t1 - r.t0) * 60;
+          const sc = (meets(plan) ? 0 : 1e5) - (meets(plan) ? plan.paceF * 300 : 0) + w; // meets first, then the gentlest pace, then least walking
+          if (sc < bestScore) { bestScore = sc; bestMode = m; }
+        }
+        plan.pathMode = bestMode;
+      } else plan.pathMode = undefined;
       // full contingency buffer if possible, else half, else none
       let ok = false;
       for (const f of [1, 0.5, 0]) { plan.bufF = f; plan.paceF = lo; optimize(plan, 0); if (meets(plan)) { ok = true; break; } }
