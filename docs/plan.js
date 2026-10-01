@@ -35,12 +35,12 @@
   const IDLE_LABEL = 'Nothing left that fits your settings';
   const MANUAL_PACE = { conservative: 1.2, standard: 1, aggressive: 0.85 }; // lead-time multiplier for hand-built plans
   const UNIT = { laps: 'laps', score: 'points', height: 'feet', trad: 'trad laps' };
-  let WALKW = 2.5;
+  let WALKW = 9; // walking minutes count 9x against a wall's climbing value (strong preference for staying put)
   const START_AREA = 'The Park';
   // Canyon crossings: West + North walls are one side, East walls the other; the valley floor is neutral.
   const MAX_CROSS = { 12: 1, 24: 2 };
   const CROSS_PEN = [30, 240]; // minutes-equivalent for the first and second crossing (one is best)
-  const TUNE = { turns: 1, move: 8, back: 60, valley: 6, reverse: 60, zone: 500, special: 900 }; // minutes-equivalent: any move, returning to a wall already left, valley detours
+  const TUNE = { turns: 1, move: 24, back: 180, valley: 6, reverse: 60, zone: 500, special: 900 }; // minutes-equivalent: any move, returning to a wall already left, valley detours
   // Position along the cliff line, measured round the horseshoe from Crackhouse Alley (southwest) to The Far East (southeast).
   const CANYON_C = { lat: 36.0048, lon: -93.2905 };
   const linePos = a => { if (!a || a.lat == null) return null; const ang = Math.atan2(a.lat - CANYON_C.lat, (a.lon - CANYON_C.lon) * Math.cos(CANYON_C.lat * Math.PI / 180)) * 180 / Math.PI; return ((250 - ang) % 360 + 360) % 360; };
@@ -486,6 +486,74 @@
         if (meets(plan)) { lo = mid; bestItems = plan.items; } else hi = mid;
       }
       plan.paceF = lo; plan.items = bestItems;
+      polish(plan);
+    }
+
+    // ---------- walking polish ----------
+    // After the optimizer, reorder whole wall stops and fold revisits into the first visit wherever that cuts
+    // walking and the plan still keeps every rule (grade caps by time, dark limit, warm-up ramp, hard laps per
+    // hour, crossings, event end) and still meets its goals.
+    function stopsOf(items) {
+      const stops = []; let cur = null;
+      for (const it of items) {
+        const r = it.rid && byId[it.rid];
+        if (r) { if (!cur || cur.area !== r.area) { cur = { area: r.area, items: [] }; stops.push(cur); } cur.items.push(it); }
+        else if (cur) cur.items.push(it); else { cur = { area: null, items: [it] }; stops.push(cur); }
+      }
+      return stops;
+    }
+    const flat = stops => stops.flatMap(s => s.items);
+    function stopWalk(plan, stops) { let w = 0, a = START_AREA; for (const s of stops) { if (!s.area) continue; w += walkMin(a, s.area, plan); a = s.area; } return w; }
+    function keepsRules(plan, items) {
+      const F = FORMATS[plan.format], end = plan.start + F.dur, I = INTENSITY[plan.intensity] || INTENSITY.standard;
+      const saved = plan.items; plan.items = items;
+      try {
+        const tl = timeline(plan, items);
+        if (tl.t > end + 0.01) return false;
+        if (countCrossings(plan) > (MAX_CROSS[plan.format] ?? 1)) return false;
+        const cl = Object.fromEntries(WHO.map(k => [k, climber(plan, k)]));
+        const laps = { me: 0, partner: 0 }, hard = { me: {}, partner: {} };
+        for (const row of tl.rows) {
+          if (row.kind !== 'route') continue;
+          const r = row.r, gu = r.gu ?? -6, bucket = GU2(gradeLabel(r.gu, r.g)), rel = (row.t0 - plan.start) / F.dur, hr = Math.floor(row.t1 - plan.start);
+          for (const k of row.who) {
+            const c = cl[k];
+            if (gu > ceilingAt(plan, c, rel) + 0.01) return false;
+            if (plan.darkMax && row.light !== 'day' && bucket > GU2(plan.darkMax)) return false;
+            if (plan.earlyHard && plan.format === '24' && row.t0 - plan.start >= 12 && gu >= c.os) return false;
+            if (plan.warm) { const wn = plan.warmN ?? 3, base = Math.max(GU2(plan.warm), plan.gmin ? GU2(plan.gmin) : -99);
+              if (bucket > base + (laps[k] < wn ? 0 : 1 + Math.floor((laps[k] - wn) / 2))) return false; }
+            if (gu > c.os) { hard[k][hr] = (hard[k][hr] || 0) + 1; if (hard[k][hr] > I.hard) return false; }
+            laps[k]++;
+          }
+        }
+        return meets(plan);
+      } finally { plan.items = saved; }
+    }
+    function polish(plan) {
+      if (!plan.items.length) return;
+      let stops = stopsOf(plan.items), cost = stopWalk(plan, stops);
+      for (let iter = 0; iter < 80; iter++) {
+        const cands = [];
+        const n = stops.length;
+        // fold a later visit to a wall into an earlier one
+        for (let i = 0; i < n; i++) for (let j = i + 1; j < n; j++) if (stops[i].area && stops[i].area === stops[j].area) {
+          const s2 = stops.map(s => ({ area: s.area, items: s.items }));
+          s2[i] = { area: s2[i].area, items: s2[i].items.concat(s2[j].items) }; s2.splice(j, 1);
+          const m = stopsOf(flat(s2)); cands.push([stopWalk(plan, m) - cost, m]);
+        }
+        // move one whole stop somewhere else
+        for (let k = 0; k < n; k++) { if (!stops[k].area) continue;
+          for (let p = 0; p <= n; p++) { if (p === k || p === k + 1) continue;
+            const s2 = stops.slice(); const [mv] = s2.splice(k, 1); s2.splice(p > k ? p - 1 : p, 0, mv);
+            const d = stopWalk(plan, s2) - cost; if (d < -0.5) cands.push([d, stopsOf(flat(s2))]);
+          } }
+        cands.sort((a, b) => a[0] - b[0]);
+        let moved = false;
+        for (const [d, m] of cands) { if (d > -0.5) break; const it = flat(m); if (keepsRules(plan, it)) { stops = m; cost += d; moved = true; break; } }
+        if (!moved) break;
+      }
+      plan.items = flat(stops);
     }
 
     // ---------- plan CRUD ----------
@@ -979,6 +1047,6 @@
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
+    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
   };
 })();
