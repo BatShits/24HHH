@@ -398,7 +398,8 @@
           if (GRP[a] === null && a !== area) pen += TUNE.valley; // detours onto the valley floor
           let sunF = 1;
           const sp = sunPref(plan);
-          if (sp === 'shade' && hh >= 10.5 && hh <= 17.5) { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.55 : st === 'partial' ? 0.8 : 1; }
+          // shade: the West and North walls are under tree cover, so the thing to dodge is the open East side in the afternoon sun
+          if (sp === 'shade' && rs[0].side === 'East' && hh >= 12 && pre.lt === 'day') { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.4 : st === 'partial' ? 0.65 : 0.9; }
           else if (sp === 'sun' && pre.lt === 'day') { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 1 : st === 'partial' ? 0.85 : st === 'shade' ? 0.65 : 0.8; }
           const opts = []; for (const r of rs) { const e = evalRoute(r, t + w / 60); if (e && t + (w + e.mins) / 60 <= end && !(strict && plan.together !== false && e.who.length < WHO.length)) opts.push(e); }
           if (!opts.length) continue;
@@ -586,7 +587,7 @@
       const brow = el('div', 'target-row'); brow.append(bi, el('span', null, 'minutes per hour'));
       d.appendChild(field('Breaks', brow, `Suggested for ${I.label} ${I.breaks} min per hour. Taken as one break each hour. Walking between walls is ${I.walkName}.`));
       d.appendChild(field('Sun or shade', chipRow([['shade', 'I prefer to climb in the shade'], ['sun', 'I prefer to climb in direct sun']], sunPref(plan) === 'sun' ? 'sun' : 'shade',
-        v => upd(() => { plan.sunPref = v; })()), sunPref(plan) === 'sun' ? 'Favors walls in direct sun whenever it\'s light out.' : 'Steers away from walls in direct sun from about 10:30 am to 5:30 pm.'));
+        v => upd(() => { plan.sunPref = v; })()), sunPref(plan) === 'sun' ? 'Favors walls in direct sun whenever it\'s light out.' : 'Keeps you off the sunny East side in the afternoon. The West and North walls are under tree cover, so they stay fair game.'));
       // starting walls, in order
       const sw = el('div', 'startwalls'); const list = (plan.startWalls ||= []);
       list.forEach((a, i) => { const c = el('button', 'chip-x', `${i + 1}. ${a.replace(/^The /, '')} ×`); c.type = 'button'; c.setAttribute('aria-label', 'Remove ' + a); c.onclick = upd(() => list.splice(i, 1)); sw.appendChild(c); });
