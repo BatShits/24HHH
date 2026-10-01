@@ -586,8 +586,9 @@
       bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = v === I.breaks ? undefined : v; save(); render(); };
       const brow = el('div', 'target-row'); brow.append(bi, el('span', null, 'minutes per hour'));
       d.appendChild(field('Breaks', brow, `Suggested for ${I.label} ${I.breaks} min per hour. Taken as one break each hour. Walking between walls is ${I.walkName}.`));
-      d.appendChild(field('Sun or shade', chipRow([['shade', 'I prefer to climb in the shade'], ['sun', 'I prefer to climb in direct sun']], sunPref(plan) === 'sun' ? 'sun' : 'shade',
-        v => upd(() => { plan.sunPref = v; })()), sunPref(plan) === 'sun' ? 'Favors walls in direct sun whenever it\'s light out.' : 'Keeps you off the sunny East side in the afternoon. The West and North walls are under tree cover, so they stay fair game.'));
+      const sp0 = sunPref(plan);
+      d.appendChild(field('Sun or shade', chipRow([['shade', 'I prefer to climb in the shade'], ['sun', 'I prefer to climb in direct sun'], ['none', 'No preference']], sp0,
+        v => upd(() => { plan.sunPref = v; })()), { sun: 'Favors walls in direct sun whenever it\'s light out.', shade: 'Keeps you off the sunny East side in the afternoon. The West and North walls are under tree cover, so they stay fair game.', none: 'Sun and shade don\'t affect the plan.' }[sp0] || ''));
       // starting walls, in order
       const sw = el('div', 'startwalls'); const list = (plan.startWalls ||= []);
       list.forEach((a, i) => { const c = el('button', 'chip-x', `${i + 1}. ${a.replace(/^The /, '')} ×`); c.type = 'button'; c.setAttribute('aria-label', 'Remove ' + a); c.onclick = upd(() => list.splice(i, 1)); sw.appendChild(c); });
