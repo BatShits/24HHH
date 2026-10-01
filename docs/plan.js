@@ -20,21 +20,23 @@
   };
   const FORMATS = {
     24: { label: '24-hour', startHour: 10, dur: 24, laps: { full: 70, golden: 100, qualify: 100 }, trad: { golden: 55, qualify: 55 }, pts: { golden: 12000, qualify: 12000 }, zones: 24, ft: 5280, hourBonus: 790,
-      checkins: [{ at: 21.5, end: 22.5, label: 'Check-in (9:30–10:30 pm window)' }, { at: 27.5, end: 28.5, label: 'Check-in, eyeballs (3:30–4:30 am window)' }],
-      meals: [{ at: 13.25, min: 15, label: 'Lunch' }, { at: 18.5, min: 25, label: 'Dinner' }, { at: 26.5, min: 20, label: 'Food and reset' }, { at: 31, min: 15, label: 'Breakfast' }] },
+      checkins: [{ at: 21.5, end: 22.5, label: 'Check-in (9:30–10:30 pm window)' }, { at: 27.5, end: 28.5, label: 'Check-in, eyeballs (3:30–4:30 am window)' }] },
     12: { label: '12-hour', startHour: 7.5, dur: 12, laps: { full: 40, golden: 65, qualify: 65 }, trad: { golden: 40, qualify: 40 }, pts: { golden: 8000, qualify: 8000 }, zones: 12, ft: null, hourBonus: 0,
-      checkins: [], meals: [{ at: 12, min: 20, label: 'Lunch' }, { at: 16, min: 10, label: 'Snack' }] },
+      checkins: [] },
   };
   const INTENSITY = {
-    conservative: { label: "Don't Hurt Me", ceil: [0, -1, -2, -1], hard: 1 },
-    standard: { label: 'Bring it On!', ceil: [1, 0, -1, 0], hard: 2 },
-    aggressive: { label: 'I am Death Incarnate!!', ceil: [2, 1, 0, 1], hard: 3 },
+    conservative: { label: "Don't Hurt Me", ceil: [0, -1, -2, -1], hard: 1, walk: 50, walkPrep: 2, breaks: 15, walkName: 'a slow stroll (about 3 km/h)' },
+    standard: { label: 'Bring it On!', ceil: [1, 0, -1, 0], hard: 2, walk: 90, walkPrep: 1, breaks: 5, walkName: 'a fast walk (about 5.4 km/h)' },
+    aggressive: { label: 'I am Death Incarnate!!', ceil: [2, 1, 0, 1], hard: 3, walk: 140, walkPrep: 0.5, breaks: 0, walkName: 'a steady jog (about 8.4 km/h)' },
   };
   const WHO = ['me', 'partner'];
   const TARGET_DEFAULT = { 24: { laps: 100, score: 12000, height: 5280 }, 12: { laps: 65, score: 8000, height: 3000 } };
   const UNIT = { laps: 'laps', score: 'points', height: 'feet' };
   let WALKW = 1.5;
-  const START_AREA = 'The Park'; // starting line by the Trading Post on the valley floor
+  const START_AREA = 'The Park';
+  // Check-in point. The rules mention four stations without locations; until they're known, use the Trading Post on the valley floor.
+  const CHECKIN = '__checkin';
+  const CHECKIN_LOC = { lat: 36.0012, lon: -93.2905, name: 'check-in at the Trading Post' }; // starting line by the Trading Post on the valley floor
 
   window.Planner = function (ctx) {
     const { $, el, store, GU, profiles, ROUTES, AREAS, ui } = ctx;
@@ -110,14 +112,19 @@
       const hrs = abs - plan.start; if (hrs > 12) m *= 1.1; if (hrs > 18) m *= 1.1;
       return m * (plan.paceF || 1);
     }
-    function walkMin(a, b) {
+    const locOf = a => a === CHECKIN ? CHECKIN_LOC : AREAS()[a];
+    const placeName = a => a === CHECKIN ? CHECKIN_LOC.name : a;
+    // Walking minutes between two walls. Speed follows the push level; distance is straight line x1.3 for trail winding until trails are mapped.
+    function walkMin(a, b, plan) {
       if (!a || a === b) return 0;
-      const A = AREAS()[a], B = AREAS()[b];
-      if (!A || !B || A.lat == null || B.lat == null) return 8;
+      const A = locOf(a), B = locOf(b);
+      const I = INTENSITY[plan && plan.intensity] || INTENSITY.standard;
+      if (!A || !B || A.lat == null || B.lat == null) return I.walkPrep + 450 / I.walk;
       const R = 6371000, toR = Math.PI / 180;
       const d = 2 * R * Math.asin(Math.sqrt(Math.sin((B.lat - A.lat) * toR / 2) ** 2 + Math.cos(A.lat * toR) * Math.cos(B.lat * toR) * Math.sin((B.lon - A.lon) * toR / 2) ** 2));
-      return 1.5 + d * 1.3 / 58; // trail winding x1.3, ~58 m/min (3.5 km/h) with packs; refine once trails are mapped
+      return I.walkPrep + d * 1.3 / I.walk;
     }
+    const breakMin = plan => plan.breakMin != null ? plan.breakMin : (INTENSITY[plan.intensity] || INTENSITY.standard).breaks;
     function sunAt(plan, r, abs) {
       const a = AREAS()[r.area]; if (!a) return 'varies';
       const x = dh(plan, abs); return Sun.state(a.aspect, a.shady, x.ymd, x.hour);
@@ -125,10 +132,35 @@
 
     // ---------- timeline + stats ----------
     function fixedEvents(plan) {
-      const F = FORMATS[plan.format]; const ev = [];
-      for (const c of F.checkins) ev.push({ kind: 'checkin', at: c.at, min: 15, label: c.label });
-      if (plan.meals !== false) for (const m of F.meals) ev.push({ kind: 'break', at: m.at, min: m.min, label: m.label });
-      return ev.filter(e => e.at >= plan.start && e.at < plan.start + F.dur).sort((a, b) => a.at - b.at);
+      const F = FORMATS[plan.format];
+      return F.checkins.map(c => ({ kind: 'checkin', at: c.at, min: 10, label: c.label })).filter(e => e.at >= plan.start && e.at < plan.start + F.dur);
+    }
+    // Shared clock for check-ins and hourly breaks, used by both the timeline and the optimizer.
+    function fixedClock(plan) {
+      const ev = fixedEvents(plan), bm = breakMin(plan);
+      return { ei: 0, nextBreak: plan.start + 1,
+        // advance st = {t, area} past any check-in or break that's due; returns rows describing them
+        step(st) {
+          const out = [];
+          for (let guard = 0; guard < 6; guard++) {
+            const e = ev[this.ei];
+            if (e) {
+              const w = walkMin(st.area, CHECKIN, plan);
+              if (st.t + w / 60 >= e.at) { // leave in time to arrive as the window opens
+                this.ei++;
+                if (w) { out.push({ kind: 'walk', t0: st.t, t1: st.t + w / 60, from: st.area, to: CHECKIN, light: light(plan, st.t) }); st.t += w / 60; }
+                out.push({ kind: 'checkin', t0: st.t, t1: st.t + e.min / 60, label: e.label, area: CHECKIN });
+                st.t += e.min / 60; st.area = CHECKIN; continue;
+              }
+            }
+            if (bm > 0 && st.t >= this.nextBreak) {
+              out.push({ kind: 'break', t0: st.t, t1: st.t + bm / 60, label: 'Break', area: st.area, auto: true });
+              st.t += bm / 60; this.nextBreak = plan.start + Math.floor(st.t - plan.start) + 1; continue;
+            }
+            break;
+          }
+          return out;
+        } };
     }
     function blankStats(plan) {
       const s = {};
@@ -146,17 +178,17 @@
     }
     function timeline(plan, items, upto) {
       const F = FORMATS[plan.format], end = plan.start + F.dur;
-      const ev = fixedEvents(plan); let ei = 0;
+      const clock = fixedClock(plan);
       const rows = [], stats = blankStats(plan);
       let t = plan.start, area = START_AREA;
       const n = upto == null ? items.length : upto;
-      const flushEvents = () => { while (ei < ev.length && ev[ei].at <= t) { const e = ev[ei++]; rows.push({ kind: e.kind, t0: t, t1: t + e.min / 60, label: e.label, area }); t += e.min / 60; } };
+      const flushEvents = () => { const st = { t, area }; rows.push(...clock.step(st)); t = st.t; area = st.area; };
       for (let i = 0; i < n; i++) {
         const it = items[i];
         flushEvents();
         if (it.type === 'break') { rows.push({ kind: 'break', t0: t, t1: t + it.min / 60, label: it.label || 'Break', i, area }); t += it.min / 60; continue; }
         const r = byId[it.rid]; if (!r) continue;
-        const w = walkMin(area, r.area);
+        const w = walkMin(area, r.area, plan);
         if (w) { rows.push({ kind: 'walk', t0: t, t1: t + w / 60, from: area, to: r.area, light: light(plan, t + w / 120) }); t += w / 60; }
         const who = it.who.filter(k => WHO.includes(k));
         let m = 1; for (const k of who) m += leadMin(plan, r, climber(plan, k), t);
@@ -165,7 +197,7 @@
         applyRoute(plan, stats, r, who, t);
       }
       if (upto == null) flushEvents();
-      return { rows, stats, t, area, end, eventsDone: ei };
+      return { rows, stats, t, area, end, clock };
     }
     const normRows = tl => tl;
 
@@ -187,7 +219,7 @@
       const items = plan.items.slice(0, keep);
       const tl = normRows(timeline(plan, items));
       let t = tl.t, area = tl.area; const stats = tl.stats;
-      const ev = fixedEvents(plan); let ei = tl.eventsDone;
+      const clock = tl.clock;
       const cl = Object.fromEntries(WHO.map(k => [k, climber(plan, k)]));
       const I = INTENSITY[plan.intensity] || INTENSITY.standard;
       const pool = comp().filter(r => r.gu != null || r.g === 'Easy 5th');
@@ -207,12 +239,12 @@
         let zones = Object.keys(rep).map(Number).filter(z => !WHO.every(k => stats[k].zones.has(z)));
         if (need === 12) { // 12-hour: the 12 zones nearest the start, plus the specials' zones
           const sp = pool.filter(r => r.sp).map(r => r.zn);
-          zones.sort((a, b) => walkMin(START_AREA, rep[a]) - walkMin(START_AREA, rep[b]));
+          zones.sort((a, b) => walkMin(START_AREA, rep[a], plan) - walkMin(START_AREA, rep[b], plan));
           zones = [...new Set([...sp, ...zones])].slice(0, Math.max(12, sp.length));
         }
         let cur = area; const left = new Set(zones);
-        while (left.size) { let bz = null, bd = 1e9; for (const z of left) { const d = walkMin(cur, rep[z]); if (d < bd) { bd = d; bz = z; } } tour.push(bz); left.delete(bz); cur = rep[bz]; }
-        const cost = tr => tr.reduce((acc, z, i) => acc + walkMin(i ? rep[tr[i - 1]] : area, rep[z]), 0);
+        while (left.size) { let bz = null, bd = 1e9; for (const z of left) { const d = walkMin(cur, rep[z], plan); if (d < bd) { bd = d; bz = z; } } tour.push(bz); left.delete(bz); cur = rep[bz]; }
+        const cost = tr => tr.reduce((acc, z, i) => acc + walkMin(i ? rep[tr[i - 1]] : area, rep[z], plan), 0);
         for (let pass = 0, improved = true; improved && pass < 30; pass++) {
           improved = false;
           for (let i = 0; i < tour.length - 1; i++) for (let j = i + 1; j < tour.length; j++) {
@@ -225,7 +257,7 @@
       const H = plan.horizon ?? 45; // minutes of climbing used to judge a wall
       let guard = 0;
       while (t < end - 0.08 && guard++ < 500) {
-        while (ei < ev.length && ev[ei].at <= t) t += ev[ei++].min / 60;
+        { const st = { t, area }; clock.step(st); t = st.t; area = st.area; }
         const rel = (t - plan.start) / F.dur, hr = Math.floor(t - plan.start);
         const pre = { lt: light(plan, t) }; const hh = dh(plan, t).hour;
         const ceil = Object.fromEntries(WHO.map(k => [k, ceilingAt(plan, cl[k], rel)]));
@@ -270,7 +302,7 @@
         // score each wall: best routes there for about H minutes, against the walk to reach it
         let best = null, bestRate = 0;
         for (const [a, rs] of Object.entries(byArea)) {
-          const w = walkMin(area, a);
+          const w = walkMin(area, a, plan);
           if (t + (w + 5) / 60 > end) continue;
           let sunF = 1;
           if (plan.avoidSun !== false && hh >= 10.5 && hh <= 17.5) { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.55 : st === 'partial' ? 0.8 : 1; }
@@ -345,7 +377,7 @@
     function newPlan(fmt) {
       fmt = fmt || '24';
       const p = { id: 'p' + Date.now().toString(36), name: (fmt === '24' ? '24-hour' : '12-hour') + ' plan', format: fmt, date: defaultDate(fmt), start: FORMATS[fmt].startHour,
-        goal: 'full', targets: {}, side: { east: true, over60: false, soft: true }, divs: {}, intensity: 'standard', avoidSun: true, meals: true, reach: true, items: [] };
+        goal: 'full', targets: {}, side: { east: true, over60: false, soft: true }, divs: {}, intensity: 'standard', avoidSun: true, reach: true, items: [] };
       state.plans.push(p); state.active = p.id; save(); return p;
     }
 
@@ -415,9 +447,14 @@
         dv.appendChild(field(`${p.name || (k === 'me' ? 'You' : 'Partner')} division`, s, p.project ? `Default from project grade ${p.project}.` : 'Set a project grade in the You tab to default this.'));
       }
       d.appendChild(dv);
-      d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; })()),
+      d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; plan.breakMin = undefined; })()),
         { conservative: 'Stays at or below onsight; one harder lap per hour per climber.', standard: 'Up to one grade over onsight early, easing off overnight; two harder laps per hour.', aggressive: 'Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
-      d.appendChild(field('Options', chipRow([['avoidSun', 'Avoid direct sun midday'], ['meals', 'Meal breaks'], ['reach', 'Skip routes too reachy']], { avoidSun: plan.avoidSun !== false, meals: plan.meals !== false, reach: plan.reach !== false },
+      const I = INTENSITY[plan.intensity] || INTENSITY.standard;
+      const bi = el('input'); bi.type = 'number'; bi.inputMode = 'numeric'; bi.min = 0; bi.max = 30; bi.value = breakMin(plan);
+      bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = v === I.breaks ? undefined : v; save(); render(); };
+      const brow = el('div', 'target-row'); brow.append(bi, el('span', null, 'minutes per hour'));
+      d.appendChild(field('Breaks', brow, `Suggested for ${I.label} ${I.breaks} min per hour. Taken as one break each hour. Walking between walls is ${I.walkName}.`));
+      d.appendChild(field('Options', chipRow([['avoidSun', 'Avoid direct sun midday'], ['reach', 'Skip routes too reachy']], { avoidSun: plan.avoidSun !== false, reach: plan.reach !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
       const missing = WHO.filter(k => !(profiles[k] || {}).onsight);
       if (missing.length) d.appendChild(el('p', 'warn', 'Add onsight and project grades in the You tab for ' + missing.map(k => k === 'me' ? 'you' : 'your partner').join(' and ') + '. Until then the planner assumes a 5.9 onsight.'));
@@ -481,9 +518,9 @@
       let stop = 0, lastArea = null;
       const whoLabel = w => w.length === 2 ? 'Both' : w[0] === 'me' ? climber(plan, 'me').name : climber(plan, 'partner').name;
       for (const row of tl.rows) {
-        if (row.kind === 'walk') { list.appendChild(el('li', 'p-walk light-' + row.light, `Walk ${Math.max(1, Math.round((row.t1 - row.t0) * 60))} min to ${row.to}`)); continue; }
+        if (row.kind === 'walk') { list.appendChild(el('li', 'p-walk light-' + row.light, `${(INTENSITY[plan.intensity] || INTENSITY.standard).walk >= 120 ? 'Jog' : 'Walk'} ${Math.max(1, Math.round((row.t1 - row.t0) * 60))} min to ${placeName(row.to)}`)); continue; }
         if (row.kind === 'checkin' || row.kind === 'break') {
-          const li = el('li', 'p-break ' + row.kind); li.append(el('span', 'p-time', fmtAbs(plan, row.t0, true)), el('span', null, `${row.label}, ${Math.round((row.t1 - row.t0) * 60)} min`));
+          const li = el('li', 'p-break ' + row.kind + (row.auto ? ' auto' : '')); li.append(el('span', 'p-time', fmtAbs(plan, row.t0, true)), el('span', null, `${row.label}, ${Math.round((row.t1 - row.t0) * 60)} min`));
           if (row.i != null) { const x = el('button', 'icon', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Remove break'); x.onclick = () => { plan.items.splice(row.i, 1); save(); render(); ctx.onPlanChange(); }; li.appendChild(x); }
           list.appendChild(li); continue;
         }
@@ -542,7 +579,7 @@
       const cands = comp().map(r => {
         const who = WHO.filter(k => !tl.stats[k].done.has(r.id) && (r.gu ?? -6) <= DIVS[cl[k].div].max);
         const okNow = who.filter(k => (r.gu ?? -6) <= ceilingAt(plan, cl[k], rel) + 0.01);
-        const w = walkMin(tl.area, r.area);
+        const w = walkMin(tl.area, r.area, plan);
         let mins = w + 1; for (const k of (okNow.length ? okNow : who)) mins += leadMin(plan, r, cl[k], tl.t);
         return { r, who: okNow.length ? okNow : who, mins, w, score: ((r.pts || 0) * (okNow.length || 0.3)) / mins };
       }).filter(c => c.who.length);
