@@ -1,0 +1,17 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Update the Field Guide</title>
+<style>body{font:17px/1.5 system-ui,sans-serif;margin:0;padding:24px 16px;background:#eef0ea;color:#23302f}@media(prefers-color-scheme:dark){body{background:#23302f;color:#eef0ea}}</style></head>
+<body><p id="s">Clearing the saved copy of the app. Your notes, climber profiles and plans stay on this phone…</p>
+<script>
+// Fallback for phones stuck on an old version: drop the service worker and the saved app files (not map tiles, not notes), then reopen the app fresh.
+(async () => {
+  const s = document.getElementById('s');
+  try {
+    if (navigator.serviceWorker) for (const r of await navigator.serviceWorker.getRegistrations()) await r.unregister();
+    if (window.caches) for (const k of await caches.keys()) if (k.startsWith('hhh-app-')) await caches.delete(k);
+    s.textContent = 'Done. Opening the latest version…';
+    setTimeout(() => location.replace('./?fresh=' + Date.now()), 600);
+  } catch (e) { s.textContent = 'Couldn\'t clear it: ' + e.message; }
+})();
+</script></body></html>
