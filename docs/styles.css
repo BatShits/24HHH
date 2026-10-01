@@ -283,3 +283,5 @@ h4 { margin: 1em 0 .2em; font-size: .95rem; }
 .target-row { display: flex; gap: 10px; align-items: center; }
 .target-row input { width: 8em; border: 1px solid var(--line); background: var(--bg); border-radius: var(--radius-s); padding: 8px 10px; color: var(--ink); font-size: 1.05rem; font-weight: 600; }
 .pace-calc { margin: 0; font-weight: 700; font-variant-numeric: tabular-nums; }
+.checkline { display: flex; align-items: center; gap: 10px; min-height: 44px; }
+.checkline input { width: 24px; height: 24px; margin: 0; accent-color: var(--soft); }

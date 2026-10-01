@@ -46,6 +46,9 @@
     // ---------- storage ----------
     let state = store.get('hhh.plans', null);
     if (!state || !Array.isArray(state.plans)) state = { active: null, plans: [] };
+    // Event hours are fixed by the rules: 12-hour 7:30 am to 7:30 pm, 24-hour 10:00 am to 10:00 am.
+    const fixStart = p => { if (p && FORMATS[p.format]) p.start = FORMATS[p.format].startHour; return p; };
+    state.plans.forEach(fixStart);
     const save = () => store.set('hhh.plans', state);
     const active = () => state.plans.find(p => p.id === state.active) || null;
 
@@ -254,6 +257,7 @@
         }
       }
       const nextZones = () => { const open = tour.filter(z => !WHO.every(k => stats[k].zones.has(z))); return new Set(open.slice(0, 2)); };
+      const dayHard = plan.format === '24' && !!plan.dayHard;
       const H = plan.horizon ?? 45; // minutes of climbing used to judge a wall
       let guard = 0;
       while (t < end - 0.08 && guard++ < 500) {
@@ -272,6 +276,7 @@
             if (gu > DIVS[c.div].max || gu > ceil[k] + 0.01) continue;
             if (plan.reach !== false && reachBlocked(r, c)) continue;
             if (gu > c.os && (s.hardHour[hr] || 0) >= I.hard) continue;
+            if (dayHard && pre.lt !== 'day' && gu >= c.os) continue;
             who.push(k);
           }
           if (!who.length) return null;
@@ -294,6 +299,7 @@
             if (plan.side.over60 && (r.ht || 0) >= 60) x *= 1.3;
             if (plan.side.soft && r.v && r.v.includes('soft')) x *= 1.15;
             if (r.v && r.v.includes('stiff')) x *= 0.85;
+            if (dayHard && pre.lt === 'day' && (r.gu ?? -6) >= cl[k].os - 1) x *= 1.25 + 0.15 * Math.max(0, (r.gu ?? -6) - cl[k].os);
             v += x;
           }
           if (pre.lt !== 'day' && r.type === 'trad') v *= 0.8;
@@ -420,7 +426,7 @@
       d.appendChild(field('Plan name', name));
       d.appendChild(field('Event', chipRow([['24', '24-hour'], ['12', '12-hour']], plan.format, v => upd(() => { plan.format = v; plan.date = defaultDate(v); plan.start = FORMATS[v].startHour; plan.items = []; })())));
       const date = el('input'); date.type = 'date'; date.value = plan.date; date.onchange = () => { if (date.value) { plan.date = date.value; save(); render(); } };
-      d.appendChild(field('Start', date, `${Sun.fmt(plan.start)} start, ${FORMATS[plan.format].dur} hours. Defaults to the last full weekend of September.`));
+      d.appendChild(field('Start date', date, `Runs ${[plan.start, plan.start + FORMATS[plan.format].dur].map(h => { const x = dh(plan, h); return x.wd + ' ' + Sun.fmt(x.hour); }).join(' to ')} (fixed by the rules). Defaults to the last full weekend of September.`));
       const g = el('select'); for (const [k, v] of Object.entries(GOALS)) g.add(new Option(v, k)); g.value = plan.goal; g.onchange = () => { plan.goal = g.value; save(); render(); };
       const F = FORMATS[plan.format];
       const gHint = { score: `Favors soft, shaded, high-point routes. ${F.pts.qualify.toLocaleString()} points (bonuses included) qualifies for next year.`, laps: `Fastest routes you can lead cleanly. ${F.laps.qualify} laps qualifies for next year.`, height: F.ft ? `Favors tall routes. ${F.ft.toLocaleString()} ft also qualifies for next year.` : 'Favors tall routes.',
@@ -456,6 +462,12 @@
       d.appendChild(field('Breaks', brow, `Suggested for ${I.label} ${I.breaks} min per hour. Taken as one break each hour. Walking between walls is ${I.walkName}.`));
       d.appendChild(field('Options', chipRow([['avoidSun', 'Avoid direct sun midday'], ['reach', 'Skip routes too reachy']], { avoidSun: plan.avoidSun !== false, reach: plan.reach !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
+      if (plan.format === '24') {
+        const lab = el('label', 'checkline'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!plan.dayHard;
+        cb.onchange = () => { plan.dayHard = cb.checked; save(); render(); };
+        lab.append(cb, el('span', null, 'Save harder climbs for daylight'));
+        d.appendChild(field('Daylight', lab, 'Routes at or above onsight get done in daylight; overnight sticks to routes below onsight.'));
+      }
       const missing = WHO.filter(k => !(profiles[k] || {}).onsight);
       if (missing.length) d.appendChild(el('p', 'warn', 'Add onsight and project grades in the You tab for ' + missing.map(k => k === 'me' ? 'you' : 'your partner').join(' and ') + '. Until then the planner assumes a 5.9 onsight.'));
       const go = el('button', 'btn primary', plan.items.length ? 'Rebuild recommended plan' : 'Build recommended plan'); go.type = 'button';
@@ -636,6 +648,6 @@
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), setWalkWeight: v => { WALKW = v; }, render, mapData, active, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(p); save(); } } };
+    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), setWalkWeight: v => { WALKW = v; }, render, mapData, active, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
   };
 })();
