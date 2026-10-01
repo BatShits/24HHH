@@ -32,6 +32,7 @@
   };
   const WHO = ['me', 'partner'];
   const TARGET_DEFAULT = { 24: { laps: 100, score: 12000, height: 5280, trad: 55 }, 12: { laps: 65, score: 8000, height: 3000, trad: 40 } };
+  const IDLE_LABEL = 'Nothing left that fits your settings';
   const MANUAL_PACE = { conservative: 1.2, standard: 1, aggressive: 0.85 }; // lead-time multiplier for hand-built plans
   const UNIT = { laps: 'laps', score: 'points', height: 'feet', trad: 'trad laps' };
   let WALKW = 2.5;
@@ -418,7 +419,11 @@
           if (rate > bestRate) { bestRate = rate; best = { first: opts[0], w, a }; }
         } }
         if (!best && fi < forced.length) { fi++; continue; } // a chosen wall with nothing (more) to climb: move on
-        if (!best) { items.push({ type: 'break', min: 10, label: 'Rest' }); t += 10 / 60; continue; }
+        if (!best) { // nothing climbable fits the settings right now: one idle block, not a string of rests
+          const last = items[items.length - 1];
+          if (last && last.idle) last.min += 10; else items.push({ type: 'break', min: 10, label: IDLE_LABEL, idle: true });
+          t += 10 / 60; continue;
+        }
         if (fi < forced.length) { if (best.a === forced[fi + 1]) fi++; else if (area === forced[forced.length - 1] && fi === forced.length - 1 && best.a !== area) fi = forced.length; }
         const pick = best.first;
         if (pick.r.area !== area) fArr = t + best.w / 60;
@@ -431,7 +436,7 @@
         applyRoute(plan, stats, pick.r, pick.who, t);
       }
       // trim trailing rests
-      while (items.length && items[items.length - 1].type === 'break' && items[items.length - 1].label === 'Rest') items.pop();
+      while (items.length && items[items.length - 1].type === 'break' && (items[items.length - 1].idle || items[items.length - 1].label === 'Rest')) items.pop();
       plan.items = items; plan.built = new Date().toISOString();
     }
 
@@ -731,6 +736,9 @@
       const inp = WHO.map(k => { const c = climber(plan, k), p = c.raw;
         return `${c.name}: onsight ${p.onsight || '5.9 (not set)'}, project ${p.project || 'not set'}, ${DIVS[c.div].label}${p.ht ? ', ' + Math.floor(p.ht / 12) + "'" + (p.ht % 12) + '"' : ', height not set'}`; });
       sec.appendChild(el('p', 'hint small', `Planned with ${inp.join('; ')}.` + (solo[0] + solo[1] ? ` Routes only one of you leads: ${climber(plan, 'me').name} ${solo[0]}, ${climber(plan, 'partner').name} ${solo[1]} (the other belays). These come from different grades, divisions or reach.` : ' You lead the same routes.')));
+      const idleM = tl.rows.filter(r => r.kind === 'break' && r.i != null && plan.items[r.i] && plan.items[r.i].idle).reduce((a, r) => a + (r.t1 - r.t0) * 60, 0);
+      if (idleM >= 10) { const firstIdle = tl.rows.find(r => r.kind === 'break' && r.i != null && plan.items[r.i] && plan.items[r.i].idle);
+        sec.appendChild(el('p', 'warn', `${Math.round(idleM / 60 * 10) / 10} h with nothing to climb, from ${fmtAbs(plan, firstIdle.t0, true)}: you've used up every route that fits your settings within reach. Loosen the hardest grade after dark, the grade range or grade limits, or the hardest trad grade, then rebuild.`)); }
       const cx = countCrossings(plan);
       sec.appendChild(el('p', 'hint small', `Canyon crossings: ${cx} (limit ${MAX_CROSS[plan.format]}${plan.format === '24' ? ', one is best' : ''}).`));
       const climbing = Math.max(...WHO.map(k => tl.stats[k].laps));
