@@ -361,7 +361,7 @@
           if (GRP[a] === null && a !== area) pen += TUNE.valley; // detours onto the valley floor
           let sunF = 1;
           if (plan.avoidSun !== false && hh >= 10.5 && hh <= 17.5) { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.55 : st === 'partial' ? 0.8 : 1; }
-          const opts = []; for (const r of rs) { const e = evalRoute(r, t + w / 60); if (e && t + (w + e.mins) / 60 <= end) opts.push(e); }
+          const opts = []; for (const r of rs) { const e = evalRoute(r, t + w / 60); if (e && t + (w + e.mins) / 60 <= end && !(strict && plan.together !== false && e.who.length < WHO.length)) opts.push(e); }
           if (!opts.length) continue;
           opts.sort((x, y) => y.v / y.mins - x.v / x.mins);
           // greedy fill of the horizon; zone and east bonuses only count once per climber
@@ -514,7 +514,7 @@
       bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = v === I.breaks ? undefined : v; save(); render(); };
       const brow = el('div', 'target-row'); brow.append(bi, el('span', null, 'minutes per hour'));
       d.appendChild(field('Breaks', brow, `Suggested for ${I.label} ${I.breaks} min per hour. Taken as one break each hour. Walking between walls is ${I.walkName}.`));
-      d.appendChild(field('Options', chipRow([['avoidSun', 'Avoid direct sun midday'], ['reach', 'Skip routes too reachy']], { avoidSun: plan.avoidSun !== false, reach: plan.reach !== false },
+      d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['avoidSun', 'Avoid direct sun midday'], ['reach', 'Skip routes too reachy']], { together: plan.together !== false, avoidSun: plan.avoidSun !== false, reach: plan.reach !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
       if (plan.format === '24') {
         const lab = el('label', 'checkline'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!plan.dayHard;
@@ -557,6 +557,11 @@
       rowOf('Golden Horseshoe', (s, a) => yes(a.golden));
       rowOf('Qualifies', (s, a) => yes(a.qual));
       sec.appendChild(tbl);
+      // why the two lists differ: the inputs each climber was planned with, and routes only one of you leads
+      const solo = WHO.map(k => plan.items.filter(it => it.who && it.who.length === 1 && it.who[0] === k).length);
+      const inp = WHO.map(k => { const c = climber(plan, k), p = c.raw;
+        return `${c.name}: onsight ${p.onsight || '5.9 (not set)'}, project ${p.project || 'not set'}, ${DIVS[c.div].label}${p.ht ? ', ' + Math.floor(p.ht / 12) + "'" + (p.ht % 12) + '"' : ', height not set'}`; });
+      sec.appendChild(el('p', 'hint small', `Planned with ${inp.join('; ')}.` + (solo[0] + solo[1] ? ` Routes only one of you leads: ${climber(plan, 'me').name} ${solo[0]}, ${climber(plan, 'partner').name} ${solo[1]} (the other belays). These come from different grades, divisions or reach.` : ' You lead the same routes.')));
       const cx = countCrossings(plan);
       sec.appendChild(el('p', 'hint small', `Canyon crossings: ${cx} (limit ${MAX_CROSS[plan.format]}${plan.format === '24' ? ', one is best' : ''}).`));
       const climbing = Math.max(...WHO.map(k => tl.stats[k].laps));
