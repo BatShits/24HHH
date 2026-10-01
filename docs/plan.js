@@ -276,6 +276,7 @@
       const PATH = mode === 'loopW' ? sideWalls.slice() : mode === 'loopE' ? sideWalls.slice().reverse()
         : mode === 'uE' ? [...Esd, ...Wsd] : [...Wsd.slice().reverse(), ...Esd.slice().reverse()];
       // valley-floor walls (The Park, Carrion Cube) sit off the loop: allowed any time, with the valley-detour penalty
+      const simple = routingOf(plan) !== 'flexible';
       const PIDX = Object.fromEntries(PATH.map((a, i) => [a, i]));
       let pos = items.length && PIDX[area] != null ? PIDX[area] : -1, pdir = 1, flips = 0;
       const maxFlips = plan.format === '24' ? 2 : 1;
@@ -411,9 +412,14 @@
           if (a !== area) pen += TUNE.move;          // every move costs setup time
           if (left.has(a)) pen += TUNE.back;
           // forward only along the path; turning back only when nothing ahead fits (relaxed pass), and only a few times
-          if (a !== area && PIDX[a] != null) {
+          if (simple && a !== area && PIDX[a] != null) {
             const ahead = pdir > 0 ? PIDX[a] > pos : PIDX[a] < pos, resume = PIDX[a] === pos; // resume: back to the wall we left for check-in
             if (!ahead && !resume) { if (strict || (mode === 1 && flips >= maxFlips)) continue; pen += TUNE.reverse; back = true; }
+          }
+          if (!simple) { // flexible routing: the older sweep rules (limited turnarounds, no doubling back past a wall unless turning round)
+            const rev = dir && POS[a] != null && lastPos != null && Math.abs(POS[a] - lastPos) > 2 && Math.sign(POS[a] - lastPos) !== dir;
+            if (rev) { if (strict && turns >= TUNE.turns) continue; pen += TUNE.reverse; }
+            if (strict && left.has(a) && !rev && a !== area) continue;
           }
           }
           if (GRP[a] === null && a !== area) pen += TUNE.valley; // detours onto the valley floor
@@ -440,7 +446,7 @@
         }
         // strict pass: of the walls ahead on the path, only the next PATH_WINDOW that still have something to climb
         let pick2 = cs;
-        if (strict && !allowed) {
+        if (simple && strict && !allowed) {
           const fw = cs.filter(c => c.a !== area && PIDX[c.a] != null && PIDX[c.a] !== pos && (pdir > 0 ? PIDX[c.a] > pos : PIDX[c.a] < pos))
             .sort((x, y) => Math.abs(PIDX[x.a] - pos) - Math.abs(PIDX[y.a] - pos));
           const ok = new Set(fw.slice(0, PATH_WINDOW).map(c => c.a));
@@ -533,11 +539,14 @@
     const goalText = plan => goalsOf(plan).map(g => GOALS[g].replace(/ \(.*\)/, '').toLowerCase() + (targetOf(plan, g) ? ' ' + targetOf(plan, g).toLocaleString() : '')).join(' + ');
     // Build the plan at the slowest steady pace that still reaches the target.
     // paceF multiplies every lead's time: below 1 means faster than the base model, above 1 slower.
-    function build(plan) {
-      plan.manual = false;
+    // Routing: 'simple' walks one clean path round the horseshoe; 'flexible' may double back when a route fits better;
+    // auto (default) builds both and keeps the better plan.
+    const routingOf = plan => plan.routing === 'simple' || plan.routing === 'flexible' ? plan.routing : (plan.routeUsed || 'simple');
+    function buildWith(plan, rt) {
+      plan.routeUsed = rt;
       let lo = 0.3, hi = 3, bestItems = null;
       // pick the path shape first: the one that reaches the goals with the least walking
-      if (!(plan.startWalls || []).length) {
+      if (rt === 'simple' && !(plan.startWalls || []).length) {
         let bestMode = null, bestScore = Infinity;
         for (const m of PATH_MODES) {
           plan.pathMode = m; plan.bufF = 1;
@@ -559,6 +568,24 @@
       }
       plan.paceF = lo; plan.items = bestItems;
       polish(plan);
+    }
+    const walkOf = plan => { let w = 0; for (const r of timeline(plan, plan.items).rows) if (r.kind === 'walk') w += (r.t1 - r.t0) * 60; return w; };
+    function build(plan) {
+      plan.manual = false;
+      if (plan.routing === 'simple' || plan.routing === 'flexible') return buildWith(plan, plan.routing);
+      const keys = ['items', 'paceF', 'bufF', 'pathMode', 'unreachable', 'routeUsed'];
+      const snap = () => Object.fromEntries(keys.map(k => [k, plan[k]]));
+      buildWith(plan, 'simple'); const a = snap(), wa = a.unreachable ? 0 : walkOf(plan);
+      buildWith(plan, 'flexible'); const b = snap(), wb = b.unreachable ? 0 : walkOf(plan);
+      // better = reachable, then more contingency buffer, then a clearly gentler pace (5%+), then less walking
+      let pickB;
+      if (a.unreachable !== b.unreachable) pickB = a.unreachable;
+      else if (a.unreachable) pickB = false;
+      else if (a.bufF !== b.bufF) pickB = b.bufF > a.bufF;
+      else if (b.paceF > a.paceF * 1.05) pickB = true;
+      else if (a.paceF > b.paceF * 1.05) pickB = false;
+      else pickB = wb < wa;
+      Object.assign(plan, pickB ? b : a);
     }
 
     // ---------- walking polish ----------
@@ -738,6 +765,12 @@
       const brow = el('div', 'target-row'); brow.append(bi, el('span', null, 'minutes per hour'));
       d.appendChild(field('Breaks', brow, `Suggested for ${I.label} ${I.breaks} min per hour. Taken as one break each hour. Walking between walls is ${I.walkName}.`));
       const sp0 = sunPref(plan);
+      const rt0 = plan.routing === 'simple' || plan.routing === 'flexible' ? plan.routing : 'auto';
+      d.appendChild(field('Routing', chipRow([['auto', 'Best of both'], ['simple', 'Simple path'], ['flexible', 'Flexible']], rt0,
+        v => upd(() => { plan.routing = v === 'auto' ? undefined : v; })()),
+        { auto: 'Builds a simple path and a flexible plan and keeps whichever meets the goals with more buffer, an easier pace, or less walking.' + ((plan.items || []).length && !plan.manual && plan.routeUsed ? ` This plan uses ${plan.routeUsed === 'flexible' ? 'flexible routing' : 'the simple path'}.` : ''),
+          simple: 'One clean pass round the horseshoe with no doubling back. Least walking, but a route you need may not come up at the right time.',
+          flexible: 'May turn back for a route that fits better (harder routes in daylight, warm-ups, grade limits). A little more walking, often an easier pace.' }[rt0]));
       d.appendChild(field('Sun or shade', chipRow([['shade', 'I prefer to climb in the shade'], ['sun', 'I prefer to climb in direct sun'], ['none', 'No preference']], sp0,
         v => upd(() => { plan.sunPref = v; })()), { sun: 'Favors walls in direct sun whenever it\'s light out.', shade: 'Keeps you off the sunny East side in the afternoon. The West and North walls are under tree cover, so they stay fair game.', none: 'Sun and shade don\'t affect the plan.' }[sp0] || ''));
       // starting walls, in order
@@ -1158,6 +1191,6 @@
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
+    return { _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _goalTimes: (p) => goalTimes(p), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
   };
 })();
