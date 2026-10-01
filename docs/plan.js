@@ -1,0 +1,545 @@
+/* Plan recommender + editor for 24 Hours of Horseshoe Hell.
+   Builds a route-by-route plan for a two-climber team from goals, format, divisions and climber profiles,
+   then lets the team edit it and track pace against it. One lap per route per climber counts. */
+(function () {
+  'use strict';
+
+  const DIVS = {
+    rec: { label: 'Recreational (to 5.9, 12-hour only)', max: -0.01 },
+    int: { label: 'Intermediate (to 5.10d)', max: 3.99 },
+    adv: { label: 'Advanced (to 5.12a)', max: 8.99 },
+    eli: { label: 'Elite (5.12b and up)', max: 99 },
+  };
+  const GOALS = {
+    score: 'Highest score',
+    laps: 'Most routes',
+    height: 'Most height',
+    full: 'Full Horseshoe',
+    golden: 'Golden Horseshoe',
+    qualify: 'Qualify for next year (easiest path)',
+  };
+  const FORMATS = {
+    24: { label: '24-hour', startHour: 10, dur: 24, laps: { full: 70, golden: 100, qualify: 100 }, trad: { golden: 55, qualify: 55 }, pts: { golden: 12000, qualify: 12000 }, zones: 24, ft: 5280, hourBonus: 790,
+      checkins: [{ at: 21.5, end: 22.5, label: 'Check-in (9:30–10:30 pm window)' }, { at: 27.5, end: 28.5, label: 'Check-in, eyeballs (3:30–4:30 am window)' }],
+      meals: [{ at: 13.25, min: 15, label: 'Lunch' }, { at: 18.5, min: 25, label: 'Dinner' }, { at: 26.5, min: 20, label: 'Food and reset' }, { at: 31, min: 15, label: 'Breakfast' }] },
+    12: { label: '12-hour', startHour: 7.5, dur: 12, laps: { full: 40, golden: 65, qualify: 65 }, trad: { golden: 40, qualify: 40 }, pts: { golden: 8000, qualify: 8000 }, zones: 12, ft: null, hourBonus: 0,
+      checkins: [], meals: [{ at: 12, min: 20, label: 'Lunch' }, { at: 16, min: 10, label: 'Snack' }] },
+  };
+  const INTENSITY = {
+    conservative: { label: 'Conservative', ceil: [0, -1, -2, -1], hard: 1 },
+    standard: { label: 'Standard', ceil: [1, 0, -1, 0], hard: 2 },
+    aggressive: { label: 'Aggressive', ceil: [2, 1, 0, 1], hard: 3 },
+  };
+  const PACE = { slow: { label: 'Slower than 2026', f: 1.15 }, typical: { label: 'Like 2026', f: 1.0 }, fast: { label: 'Faster than 2026', f: 0.88 } };
+  const WHO = ['me', 'partner'];
+  let WALKW = 1.5;
+  const START_AREA = 'The Park'; // starting line by the Trading Post on the valley floor
+
+  window.Planner = function (ctx) {
+    const { $, el, store, GU, profiles, ROUTES, AREAS, ui } = ctx;
+    const byId = Object.fromEntries(ROUTES().map(r => [r.id, r]));
+    const comp = () => ROUTES().filter(r => r.n);
+
+    // ---------- storage ----------
+    let state = store.get('hhh.plans', null);
+    if (!state || !Array.isArray(state.plans)) state = { active: null, plans: [] };
+    const save = () => store.set('hhh.plans', state);
+    const active = () => state.plans.find(p => p.id === state.active) || null;
+
+    // ---------- dates ----------
+    function compFriday(year) { // last full weekend of September -> Friday
+      for (let d = 29; d >= 1; d--) { const dt = new Date(Date.UTC(year, 8, d)); if (dt.getUTCDay() === 6 && d + 1 <= 30) return new Date(Date.UTC(year, 8, d - 1)); }
+    }
+    function defaultDate(fmt) {
+      const now = new Date(); let y = now.getFullYear();
+      let f = compFriday(y); if (now > new Date(f.getTime() + 86400000 * 2)) f = compFriday(++y);
+      if (fmt === '12') f = new Date(f.getTime() - 86400000);
+      return f.toISOString().slice(0, 10);
+    }
+    function dh(plan, abs) { // absolute hours since plan date midnight -> {ymd, hour}
+      const [y, m, d] = plan.date.split('-').map(Number);
+      const day = Math.floor(abs / 24); const dt = new Date(Date.UTC(y, m - 1, d + day));
+      return { ymd: dt.toISOString().slice(0, 10), hour: abs - day * 24, wd: dt.toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' }) };
+    }
+    const fmtAbs = (plan, abs, wd) => { const x = dh(plan, abs); return (wd && Math.floor(abs / 24) ? x.wd + ' ' : '') + Sun.fmt(x.hour); };
+    function nowAbs(plan) {
+      const ct = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+      const [y, m, d] = plan.date.split('-').map(Number);
+      return (ct - new Date(y, m - 1, d)) / 3600000;
+    }
+    function clockAbs(plan) {
+      const [y, m, d] = plan.date.split('-').map(Number); const [y2, m2, d2] = ui.date.split('-').map(Number);
+      return (Date.UTC(y2, m2 - 1, d2) - Date.UTC(y, m - 1, d)) / 3600000 + ui.hour;
+    }
+    function light(plan, abs) {
+      const x = dh(plan, abs); const a = Sun.position(Sun.instant(x.ymd, x.hour)).alt;
+      return a > -0.8 ? 'day' : a > -6 ? 'dusk' : 'night';
+    }
+
+    // ---------- climbers ----------
+    function defaultDiv(p, fmt) {
+      if (!p || !p.project) return 'int';
+      const g = GU(p.project);
+      if (g < 0) return fmt === '24' ? 'int' : 'rec';
+      if (g <= 3) return 'int'; if (g <= 8) return 'adv'; return 'eli';
+    }
+    function climber(plan, key) {
+      const p = profiles[key] || {};
+      const os = p.onsight ? GU(p.onsight) : -1, pg = p.project ? GU(p.project) : Math.max(os + 2, 1);
+      return { key, name: p.name || (key === 'me' ? 'You' : 'Partner'), os, pg, ht: +p.ht || 0, ape: +p.ape || 0, div: (plan.divs && plan.divs[key]) || defaultDiv(p, plan.format), raw: p };
+    }
+    function ceilingAt(plan, c, rel) { // grade ceiling for this climber at fraction of event elapsed
+      const I = INTENSITY[plan.intensity] || INTENSITY.standard;
+      const phase = rel < 0.25 ? 0 : rel < 0.6 ? 1 : rel < 0.9 ? 2 : 3;
+      return Math.min(c.os + I.ceil[phase], c.pg, DIVS[c.div].max);
+    }
+    function reachBlocked(r, c) {
+      if (!r.reach || !c.ht) return false;
+      const span = c.ht + c.ape, many = r.reach >= 4;
+      return span <= 64 || (many && span <= 66);
+    }
+    // Minutes for one clean lead including tie-in, clipping and lowering.
+    // Calibrated to the 2026 12-hour: 55 routes each (both led every route) = about 13 min per route for the pair, walking included.
+    function leadMin(plan, r, c, abs, pre) {
+      const rel = (r.gu ?? 0) - c.os;
+      const rate = rel <= -3 ? 18 : rel <= -2 ? 15 : rel <= -1 ? 12 : rel <= 0 ? 9 : rel <= 1 ? 7 : 5; // ft per minute
+      let m = 1.5 + (r.ht || 45) / rate + 1;
+      if (r.type === 'trad') m = m * 1.35 + 3;
+      const lt = pre ? pre.lt : light(plan, abs); if (lt !== 'day') m *= 1.15;
+      const hrs = abs - plan.start; if (hrs > 12) m *= 1.1; if (hrs > 18) m *= 1.1;
+      return m * (PACE[plan.pace] || PACE.typical).f;
+    }
+    function walkMin(a, b) {
+      if (!a || a === b) return 0;
+      const A = AREAS()[a], B = AREAS()[b];
+      if (!A || !B || A.lat == null || B.lat == null) return 8;
+      const R = 6371000, toR = Math.PI / 180;
+      const d = 2 * R * Math.asin(Math.sqrt(Math.sin((B.lat - A.lat) * toR / 2) ** 2 + Math.cos(A.lat * toR) * Math.cos(B.lat * toR) * Math.sin((B.lon - A.lon) * toR / 2) ** 2));
+      return 1.5 + d * 1.3 / 58; // trail winding x1.3, ~58 m/min (3.5 km/h) with packs; refine once trails are mapped
+    }
+    function sunAt(plan, r, abs) {
+      const a = AREAS()[r.area]; if (!a) return 'varies';
+      const x = dh(plan, abs); return Sun.state(a.aspect, a.shady, x.ymd, x.hour);
+    }
+
+    // ---------- timeline + stats ----------
+    function fixedEvents(plan) {
+      const F = FORMATS[plan.format]; const ev = [];
+      for (const c of F.checkins) ev.push({ kind: 'checkin', at: c.at, min: 15, label: c.label });
+      if (plan.meals !== false) for (const m of F.meals) ev.push({ kind: 'break', at: m.at, min: m.min, label: m.label });
+      return ev.filter(e => e.at >= plan.start && e.at < plan.start + F.dur).sort((a, b) => a.at - b.at);
+    }
+    function blankStats(plan) {
+      const s = {};
+      for (const k of WHO) s[k] = { pts: 0, laps: 0, ft: 0, trad: 0, zones: new Set(), specials: new Set(), east: false, hours: new Set(), done: new Set(), hardHour: {} };
+      return s;
+    }
+    function applyRoute(plan, stats, r, who, t1) {
+      const hr = Math.floor(t1 - plan.start);
+      for (const k of who) {
+        const s = stats[k]; if (s.done.has(r.id)) continue;
+        s.done.add(r.id); s.laps++; s.pts += r.pts || 0; s.ft += r.ht || 0; if (r.type === 'trad') s.trad++;
+        if (r.zn != null) s.zones.add(r.zn); if (r.sp) s.specials.add(r.n); if (r.side === 'East') s.east = true;
+        s.hours.add(hr);
+      }
+    }
+    function timeline(plan, items, upto) {
+      const F = FORMATS[plan.format], end = plan.start + F.dur;
+      const ev = fixedEvents(plan); let ei = 0;
+      const rows = [], stats = blankStats(plan);
+      let t = plan.start, area = START_AREA;
+      const n = upto == null ? items.length : upto;
+      const flushEvents = () => { while (ei < ev.length && ev[ei].at <= t) { const e = ev[ei++]; rows.push({ kind: e.kind, t0: t, t1: t + e.min / 60, label: e.label, area }); t += e.min / 60; } };
+      for (let i = 0; i < n; i++) {
+        const it = items[i];
+        flushEvents();
+        if (it.type === 'break') { rows.push({ kind: 'break', t0: t, t1: t + it.min / 60, label: it.label || 'Break', i, area }); t += it.min / 60; continue; }
+        const r = byId[it.rid]; if (!r) continue;
+        const w = walkMin(area, r.area);
+        if (w) { rows.push({ kind: 'walk', t0: t, t1: t + w / 60, from: area, to: r.area, light: light(plan, t + w / 120) }); t += w / 60; }
+        const who = it.who.filter(k => WHO.includes(k));
+        let m = 1; for (const k of who) m += leadMin(plan, r, climber(plan, k), t);
+        const row = { kind: 'route', t0: t, t1: t + m / 60, r, who, i, area: r.area, sun: sunAt(plan, r, t), light: light(plan, t), done: it.done };
+        rows.push(row); t = row.t1; area = r.area;
+        applyRoute(plan, stats, r, who, t);
+      }
+      if (upto == null) flushEvents();
+      return { rows, stats, t, area, end, eventsDone: ei };
+    }
+    const normRows = tl => tl;
+
+    function achievements(plan, s) {
+      const F = FORMATS[plan.format], fmt = plan.format;
+      const allZones = fmt === '24' ? s.zones.size >= 24 : s.zones.size >= 12;
+      const full = s.laps >= F.laps.full && allZones && s.specials.size >= 2;
+      const hoursAll = Array.from({ length: F.dur }, (_, h) => s.hours.has(h)).every(Boolean);
+      const total = s.pts + (s.east ? 300 : 0) + (hoursAll ? F.hourBonus : 0); // the app's total_score includes bonuses
+      const golden = full && s.laps >= F.laps.golden && s.trad >= F.trad.golden && total >= F.pts.golden && (fmt === '24' || s.zones.size >= 24);
+      const qual = full || s.laps >= F.laps.qualify || s.trad >= F.trad.qualify || total >= F.pts.qualify || (F.ft && s.ft >= F.ft);
+      return { full, golden, qual, hoursAll, allZones };
+    }
+    function bonusPts(plan, s, a) { return (s.east ? 300 : 0) + (a.hoursAll && FORMATS[plan.format].hourBonus ? FORMATS[plan.format].hourBonus : 0); }
+
+    // ---------- optimizer ----------
+    function optimize(plan, keep) {
+      const F = FORMATS[plan.format], end = plan.start + F.dur;
+      const items = plan.items.slice(0, keep);
+      const tl = normRows(timeline(plan, items));
+      let t = tl.t, area = tl.area; const stats = tl.stats;
+      const ev = fixedEvents(plan); let ei = tl.eventsDone;
+      const cl = Object.fromEntries(WHO.map(k => [k, climber(plan, k)]));
+      const I = INTENSITY[plan.intensity] || INTENSITY.standard;
+      const pool = comp().filter(r => r.gu != null || r.g === 'Easy 5th');
+      const goal = plan.goal === 'qualify' ? 'full' : plan.goal;
+      const byArea = {};
+      for (const r of pool) (byArea[r.area] ||= []).push(r);
+      // coverage goals: plan a walking tour through every zone first (nearest neighbour + 2-opt), then follow it
+      let tour = [];
+      if (goal === 'full' || goal === 'golden') {
+        const need = plan.format === '24' || goal === 'golden' ? 24 : 12;
+        const rep = {}; // zone -> wall to visit for it (specials' walls win)
+        for (const r of pool) {
+          if (r.zn == null) continue;
+          if (r.sp) { rep[r.zn] = r.area; continue; }
+          if (!rep[r.zn] || (!pool.some(x => x.sp && x.zn === r.zn) && (byArea[r.area].length > byArea[rep[r.zn]].length))) rep[r.zn] = r.area;
+        }
+        let zones = Object.keys(rep).map(Number).filter(z => !WHO.every(k => stats[k].zones.has(z)));
+        if (need === 12) { // 12-hour: the 12 zones nearest the start, plus the specials' zones
+          const sp = pool.filter(r => r.sp).map(r => r.zn);
+          zones.sort((a, b) => walkMin(START_AREA, rep[a]) - walkMin(START_AREA, rep[b]));
+          zones = [...new Set([...sp, ...zones])].slice(0, Math.max(12, sp.length));
+        }
+        let cur = area; const left = new Set(zones);
+        while (left.size) { let bz = null, bd = 1e9; for (const z of left) { const d = walkMin(cur, rep[z]); if (d < bd) { bd = d; bz = z; } } tour.push(bz); left.delete(bz); cur = rep[bz]; }
+        const cost = tr => tr.reduce((acc, z, i) => acc + walkMin(i ? rep[tr[i - 1]] : area, rep[z]), 0);
+        for (let pass = 0, improved = true; improved && pass < 30; pass++) {
+          improved = false;
+          for (let i = 0; i < tour.length - 1; i++) for (let j = i + 1; j < tour.length; j++) {
+            const nt = tour.slice(0, i).concat(tour.slice(i, j + 1).reverse(), tour.slice(j + 1));
+            if (cost(nt) + 0.01 < cost(tour)) { tour = nt; improved = true; }
+          }
+        }
+      }
+      const nextZones = () => { const open = tour.filter(z => !WHO.every(k => stats[k].zones.has(z))); return new Set(open.slice(0, 2)); };
+      const H = plan.horizon ?? 45; // minutes of climbing used to judge a wall
+      let guard = 0;
+      while (t < end - 0.08 && guard++ < 500) {
+        while (ei < ev.length && ev[ei].at <= t) t += ev[ei++].min / 60;
+        const rel = (t - plan.start) / F.dur, hr = Math.floor(t - plan.start);
+        const pre = { lt: light(plan, t) }; const hh = dh(plan, t).hour;
+        const ceil = Object.fromEntries(WHO.map(k => [k, ceilingAt(plan, cl[k], rel)]));
+        const nz = nextZones();
+        // value of one route for the team right now (no walking)
+        const evalRoute = (r, tt, seen) => {
+          const who = [];
+          for (const k of WHO) {
+            const c = cl[k], s = stats[k];
+            if (s.done.has(r.id)) continue;
+            const gu = r.gu ?? -6;
+            if (gu > DIVS[c.div].max || gu > ceil[k] + 0.01) continue;
+            if (plan.reach !== false && reachBlocked(r, c)) continue;
+            if (gu > c.os && (s.hardHour[hr] || 0) >= I.hard) continue;
+            who.push(k);
+          }
+          if (!who.length) return null;
+          let mins = 1; for (const k of who) mins += leadMin(plan, r, cl[k], tt, pre);
+          let v = 0;
+          for (const k of who) {
+            const s = stats[k]; let x;
+            if (goal === 'score') x = r.pts || 0;
+            else if (goal === 'laps') x = 120;
+            else if (goal === 'height') x = (r.ht || 40) * 3;
+            else {
+              x = s.laps < F.laps[goal === 'golden' ? 'golden' : 'full'] ? 300 : 0;
+              x += (r.pts || 0) * (goal === 'golden' ? 0.6 : 0.2);
+              const needZone = plan.format === '24' || goal === 'golden' || s.zones.size < 12;
+              if (r.zn != null && needZone && !s.zones.has(r.zn) && !(seen && seen.has(k + 'z' + r.zn))) x += !tour.length || nz.has(r.zn) ? 2200 : 150;
+              if (r.sp && !s.specials.has(r.n)) x += !tour.length || nz.has(r.zn) ? 2600 : 150;
+              if (goal === 'golden' && r.type === 'trad' && s.trad < F.trad.golden) x += 220;
+            }
+            if (plan.side.east && !s.east && r.side === 'East' && !(seen && seen.has(k + 'east'))) x += goal === 'score' ? 300 : 900;
+            if (plan.side.over60 && (r.ht || 0) >= 60) x *= 1.3;
+            if (plan.side.soft && r.v && r.v.includes('soft')) x *= 1.15;
+            if (r.v && r.v.includes('stiff')) x *= 0.85;
+            v += x;
+          }
+          if (pre.lt !== 'day' && r.type === 'trad') v *= 0.8;
+          return { r, who, mins, v };
+        };
+        // score each wall: best routes there for about H minutes, against the walk to reach it
+        let best = null, bestRate = 0;
+        for (const [a, rs] of Object.entries(byArea)) {
+          const w = walkMin(area, a);
+          if (t + (w + 5) / 60 > end) continue;
+          let sunF = 1;
+          if (plan.avoidSun !== false && hh >= 10.5 && hh <= 17.5) { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.55 : st === 'partial' ? 0.8 : 1; }
+          const opts = []; for (const r of rs) { const e = evalRoute(r, t + w / 60); if (e && t + (w + e.mins) / 60 <= end) opts.push(e); }
+          if (!opts.length) continue;
+          opts.sort((x, y) => y.v / y.mins - x.v / x.mins);
+          // greedy fill of the horizon; zone and east bonuses only count once per climber
+          const seen = new Set(); let used = 0, val = 0;
+          for (const o of opts) {
+            if (used >= H) break;
+            const e2 = evalRoute(o.r, t + w / 60, seen) || o;
+            val += e2.v; used += e2.mins;
+            for (const k of e2.who) { if (o.r.zn != null) seen.add(k + 'z' + o.r.zn); if (o.r.side === 'East') seen.add(k + 'east'); }
+          }
+          const rate = val * sunF / ((plan.walkWeight ?? WALKW) * w + used);
+          if (rate > bestRate) { bestRate = rate; best = { first: opts[0], w, a }; }
+        }
+        if (!best) { items.push({ type: 'break', min: 10, label: 'Rest' }); t += 10 / 60; continue; }
+        const pick = best.first;
+        items.push({ rid: pick.r.id, who: pick.who });
+        t += (best.w + pick.mins) / 60; area = pick.r.area;
+        for (const k of pick.who) { const s = stats[k]; if ((pick.r.gu ?? -6) > cl[k].os) s.hardHour[hr] = (s.hardHour[hr] || 0) + 1; }
+        applyRoute(plan, stats, pick.r, pick.who, t);
+      }
+      // trim trailing rests
+      while (items.length && items[items.length - 1].type === 'break' && items[items.length - 1].label === 'Rest') items.pop();
+      plan.items = items; plan.built = new Date().toISOString();
+    }
+
+    // ---------- plan CRUD ----------
+    function newPlan(fmt) {
+      fmt = fmt || '24';
+      const p = { id: 'p' + Date.now().toString(36), name: (fmt === '24' ? '24-hour' : '12-hour') + ' plan', format: fmt, date: defaultDate(fmt), start: FORMATS[fmt].startHour,
+        goal: 'full', side: { east: true, over60: false, soft: true }, divs: {}, intensity: 'standard', pace: 'typical', avoidSun: true, meals: true, reach: true, items: [] };
+      state.plans.push(p); state.active = p.id; save(); return p;
+    }
+
+    // ---------- rendering ----------
+    let editing = null; // index of item whose actions are open
+    function render() {
+      const body = $('#planBody'); body.textContent = '';
+      let plan = active();
+      // header: plan picker
+      const top = el('div', 'plan-top');
+      const sel = el('select'); sel.setAttribute('aria-label', 'Plan');
+      for (const p of state.plans) sel.add(new Option(p.name, p.id));
+      if (plan) sel.value = plan.id;
+      sel.onchange = () => { state.active = sel.value; save(); render(); ctx.onPlanChange(); };
+      const bNew = el('button', 'btn', 'New plan'); bNew.type = 'button'; bNew.onclick = () => { newPlan(plan ? plan.format : '24'); render(); ctx.onPlanChange(); };
+      top.append(sel, bNew);
+      if (plan) { const bDel = el('button', 'btn ghost', 'Delete'); bDel.type = 'button'; bDel.onclick = () => { state.plans = state.plans.filter(p => p.id !== plan.id); state.active = state.plans[0]?.id || null; save(); render(); ctx.onPlanChange(); }; top.appendChild(bDel); }
+      if (!state.plans.length) { body.appendChild(el('h2', null, 'Plan')); body.appendChild(el('p', 'hint', 'Set your goals and the planner recommends a route-by-route plan for both of you. You can then edit it, check routes off on the day and see whether you are ahead or behind.')); const b = el('button', 'btn primary', 'Start a plan'); b.type = 'button'; b.onclick = () => { newPlan('24'); render(); }; body.appendChild(b); renderReference(body); return; }
+      body.appendChild(top);
+      renderSetup(body, plan);
+      if (plan.items.length) { renderSummary(body, plan); renderItems(body, plan); }
+      renderReference(body);
+    }
+
+    function chipRow(opts, val, onPick, single = true) {
+      const box = el('div', 'chips' + (single ? ' single' : ''));
+      for (const [v, label] of opts) {
+        const b = el('button', null, label); b.type = 'button'; b.setAttribute('aria-pressed', single ? val === v : !!val[v]);
+        b.onclick = () => onPick(v); box.appendChild(b);
+      }
+      return box;
+    }
+    function field(label, node, hint) { const f = el('div', 'pfield'); f.append(el('span', 'plabel', label), node); if (hint) f.appendChild(el('span', 'hint small', hint)); return f; }
+
+    function renderSetup(body, plan) {
+      const d = el('details', 'setup'); d.open = !plan.items.length;
+      d.appendChild(el('summary', null, `${FORMATS[plan.format].label}, goal: ${GOALS[plan.goal]}`));
+      const upd = fn => () => { fn(); save(); render(); };
+      const name = el('input'); name.type = 'text'; name.value = plan.name; name.onchange = () => { plan.name = name.value.trim() || plan.name; save(); render(); };
+      d.appendChild(field('Plan name', name));
+      d.appendChild(field('Event', chipRow([['24', '24-hour'], ['12', '12-hour']], plan.format, v => upd(() => { plan.format = v; plan.date = defaultDate(v); plan.start = FORMATS[v].startHour; plan.items = []; })())));
+      const date = el('input'); date.type = 'date'; date.value = plan.date; date.onchange = () => { if (date.value) { plan.date = date.value; save(); render(); } };
+      d.appendChild(field('Start', date, `${Sun.fmt(plan.start)} start, ${FORMATS[plan.format].dur} hours. Defaults to the last full weekend of September.`));
+      const g = el('select'); for (const [k, v] of Object.entries(GOALS)) g.add(new Option(v, k)); g.value = plan.goal; g.onchange = () => { plan.goal = g.value; save(); render(); };
+      const F = FORMATS[plan.format];
+      const gHint = { score: 'Points per minute, favoring soft, shaded, high-point routes.', laps: 'Fastest routes you can lead cleanly.', height: F.ft ? `Feet per minute. ${F.ft} ft also qualifies for next year.` : 'Feet per minute.',
+        full: `${F.laps.full} routes, ${plan.format === '24' ? 'all 24' : '12'} zones, Hickadelic Jazzgrass and Orange Crush.`, golden: `${F.laps.golden} routes, ${F.trad.golden} trad, ${F.pts.golden.toLocaleString()} points and Full Horseshoe.`,
+        qualify: 'Plans for the Full Horseshoe, the cheapest qualifying path for most teams.' }[plan.goal];
+      d.appendChild(field('Main goal', g, gHint));
+      d.appendChild(field('Also aim for', chipRow([['east', 'East Side bonus'], ['over60', 'Routes over 60 ft'], ['soft', 'Prefer soft-for-grade']], plan.side, v => upd(() => { plan.side[v] = !plan.side[v]; })(), false)));
+      // divisions
+      const dv = el('div', 'divs');
+      for (const k of WHO) {
+        const p = profiles[k] || {}; const s = el('select');
+        for (const [dk, dd] of Object.entries(DIVS)) { if (dk === 'rec' && plan.format === '24') continue; s.add(new Option(dd.label, dk)); }
+        const def = defaultDiv(p, plan.format); s.value = (plan.divs && plan.divs[k]) || def;
+        s.onchange = () => { plan.divs = plan.divs || {}; plan.divs[k] = s.value === def ? undefined : s.value; save(); render(); };
+        dv.appendChild(field(`${p.name || (k === 'me' ? 'You' : 'Partner')} division`, s, p.project ? `Default from project grade ${p.project}.` : 'Set a project grade in the You tab to default this.'));
+      }
+      d.appendChild(dv);
+      d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; })()),
+        { conservative: 'Stays at or below onsight, one harder lap per hour per climber.', standard: 'Up to one grade over onsight early, easing off overnight; two harder laps per hour.', aggressive: 'Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
+      d.appendChild(field('Pace', chipRow(Object.entries(PACE).map(([k, v]) => [k, v.label]), plan.pace, v => upd(() => { plan.pace = v; })())));
+      d.appendChild(field('Options', chipRow([['avoidSun', 'Avoid direct sun midday'], ['meals', 'Meal breaks'], ['reach', 'Skip routes too reachy']], { avoidSun: plan.avoidSun !== false, meals: plan.meals !== false, reach: plan.reach !== false },
+        v => upd(() => { plan[v] = plan[v] === false; })(), false)));
+      const missing = WHO.filter(k => !(profiles[k] || {}).onsight);
+      if (missing.length) d.appendChild(el('p', 'warn', 'Add onsight and project grades in the You tab for ' + missing.map(k => k === 'me' ? 'you' : 'your partner').join(' and ') + '. Until then the planner assumes a 5.9 onsight.'));
+      const go = el('button', 'btn primary', plan.items.length ? 'Rebuild recommended plan' : 'Build recommended plan'); go.type = 'button';
+      go.onclick = () => { if (plan.items.some(i => i.done) && !confirm('Rebuilding replaces the whole plan, including checked-off routes. Continue?')) return; optimize(plan, 0); save(); render(); ctx.onPlanChange(); };
+      d.appendChild(go);
+      body.appendChild(d);
+    }
+
+    function renderSummary(body, plan) {
+      const tl = normRows(timeline(plan, plan.items)); const F = FORMATS[plan.format];
+      const sec = el('section', 'psum');
+      const tbl = el('table', 'sumtable'); const thead = el('tr'); thead.append(el('th'), ...WHO.map(k => el('th', null, climber(plan, k).name))); tbl.appendChild(thead);
+      const ach = Object.fromEntries(WHO.map(k => [k, achievements(plan, tl.stats[k])]));
+      const rowOf = (label, f) => { const tr = el('tr'); tr.append(el('th', null, label), ...WHO.map(k => el('td', null, f(tl.stats[k], ach[k], k)))); tbl.appendChild(tr); };
+      rowOf('Routes', s => s.laps);
+      rowOf('Points', (s, a) => (s.pts + bonusPts(plan, s, a)).toLocaleString());
+      rowOf('Height', s => s.ft.toLocaleString() + ' ft');
+      rowOf('Trad', s => s.trad);
+      rowOf('Zones', s => `${s.zones.size} of 24`);
+      const yes = b => b ? 'Yes' : 'No';
+      rowOf('One Each Hour', (s, a) => yes(a.hoursAll));
+      rowOf('East Side', s => yes(s.east));
+      rowOf('Full Horseshoe', (s, a) => yes(a.full));
+      rowOf('Golden Horseshoe', (s, a) => yes(a.golden));
+      rowOf('Qualifies', (s, a) => yes(a.qual));
+      sec.appendChild(tbl);
+      sec.appendChild(el('p', 'hint small', `Plan ends ${fmtAbs(plan, tl.t, true)}; event ends ${fmtAbs(plan, plan.start + F.dur, true)}. Zone numbers for 10 of the 24 zones are a best guess until the organizers confirm the wall list.`));
+      // pace
+      const done = plan.items.map((it, i) => ({ it, i })).filter(x => x.it.done);
+      if (done.length) {
+        const last = done[done.length - 1];
+        const row = tl.rows.find(r => r.kind === 'route' && r.i === last.i);
+        const actualCT = (() => { const t = new Date(new Date(last.it.done).toLocaleString('en-US', { timeZone: 'America/Chicago' })); const [y, m, d] = plan.date.split('-').map(Number); return (t - new Date(y, m - 1, d)) / 3600000; })();
+        const delta = Math.round((actualCT - row.t1) * 60);
+        const msg = Math.abs(delta) <= 5 ? 'On pace.' : delta > 0 ? `Behind by ${delta} min.` : `Ahead by ${-delta} min.`;
+        const pace = el('p', 'pace ' + (Math.abs(delta) <= 5 ? 'on' : delta > 0 ? 'behind' : 'ahead'), `${msg} ${done.length} of ${plan.items.filter(i => i.rid).length} planned routes done.`);
+        sec.appendChild(pace);
+      }
+      const acts = el('div', 'btnrow');
+      const bMap = el('button', 'btn primary', 'Show on map'); bMap.type = 'button'; bMap.onclick = () => { ui.mapMode = 'plan'; const T = clockAbs(plan); if (T < plan.start || T > plan.start + FORMATS[plan.format].dur) { ui.date = plan.date; ui.hour = plan.start + 1; ctx.onClock(); } ctx.saveUi(); ctx.showTab('map'); };
+      const firstOpen = plan.items.findIndex(i => !i.done);
+      const bRe = el('button', 'btn', 'Re-plan the rest'); bRe.type = 'button'; bRe.title = 'Keeps checked-off routes and re-plans everything after them from now.';
+      bRe.onclick = () => { optimize(plan, firstOpen < 0 ? plan.items.length : firstOpen); save(); render(); ctx.onPlanChange(); };
+      acts.append(bMap, bRe); sec.appendChild(acts);
+      body.appendChild(sec);
+    }
+
+    function renderItems(body, plan) {
+      const tl = normRows(timeline(plan, plan.items));
+      const list = el('ol', 'plan-list');
+      let stop = 0, lastArea = null;
+      const whoLabel = w => w.length === 2 ? 'Both' : w[0] === 'me' ? climber(plan, 'me').name : climber(plan, 'partner').name;
+      for (const row of tl.rows) {
+        if (row.kind === 'walk') { list.appendChild(el('li', 'p-walk light-' + row.light, `Walk ${Math.max(1, Math.round((row.t1 - row.t0) * 60))} min to ${row.to}`)); continue; }
+        if (row.kind === 'checkin' || row.kind === 'break') {
+          const li = el('li', 'p-break ' + row.kind); li.append(el('span', 'p-time', fmtAbs(plan, row.t0, true)), el('span', null, `${row.label}, ${Math.round((row.t1 - row.t0) * 60)} min`));
+          if (row.i != null) { const x = el('button', 'icon', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Remove break'); x.onclick = () => { plan.items.splice(row.i, 1); save(); render(); ctx.onPlanChange(); }; li.appendChild(x); }
+          list.appendChild(li); continue;
+        }
+        const r = row.r;
+        if (r.area !== lastArea) { stop++; lastArea = r.area; const h = el('li', 'p-stop'); h.append(el('span', 'p-stopn', stop), el('span', 'p-stopname', r.area), el('span', 'p-time', fmtAbs(plan, row.t0, true))); list.appendChild(h); }
+        const li = el('li', 'p-route' + (row.done ? ' done' : '')); li.dataset.i = row.i;
+        const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!row.done; cb.setAttribute('aria-label', 'Done: ' + r.name);
+        cb.onchange = () => { const it = plan.items[row.i]; it.done = cb.checked ? new Date().toISOString() : undefined; save(); render(); ctx.onPlanChange(); };
+        const main = el('button', 'p-main'); main.type = 'button';
+        main.append(el('span', 'p-time', Sun.fmt(dh(plan, row.t0).hour)), el('span', 'grade ' + (ctx.feelOf(r) ? 'feel-' + ctx.feelOf(r) : ''), r.g), el('span', 'p-name', r.name));
+        const tags = el('span', 'p-tags');
+        tags.append(el('span', 'pts', r.pts));
+        tags.appendChild(el('span', 'who', whoLabel(row.who)));
+        if (row.sun === 'sun' && row.light === 'day') tags.appendChild(el('span', 'tag sun', 'Sun'));
+        if (row.light !== 'day') tags.appendChild(el('span', 'tag night', row.light === 'night' ? 'Dark' : 'Dusk'));
+        if (r.sp) tags.appendChild(el('span', 'tag special', 'Special'));
+        if (r.type === 'trad') tags.appendChild(el('span', 'tag', 'Trad'));
+        main.appendChild(tags);
+        main.onclick = () => { editing = editing === row.i ? null : row.i; render(); };
+        li.append(cb, main);
+        if (editing === row.i) {
+          const a = el('div', 'p-actions');
+          const btn = (label, fn, cls) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.onclick = () => { fn(); save(); render(); ctx.onPlanChange(); }; a.appendChild(b); };
+          const it = plan.items[row.i];
+          btn('Who: ' + whoLabel(it.who), () => { it.who = it.who.length === 2 ? ['me'] : it.who[0] === 'me' ? ['partner'] : ['me', 'partner']; });
+          btn('Move up', () => { if (row.i > 0) plan.items.splice(row.i - 1, 0, plan.items.splice(row.i, 1)[0]); editing = row.i - 1; });
+          btn('Move down', () => { if (row.i < plan.items.length - 1) plan.items.splice(row.i + 1, 0, plan.items.splice(row.i, 1)[0]); editing = row.i + 1; });
+          btn('Add route after', () => openPicker(plan, row.i + 1));
+          btn('Add break after', () => { plan.items.splice(row.i + 1, 0, { type: 'break', min: 15, label: 'Break' }); });
+          btn('Re-plan after this', () => optimize(plan, row.i + 1));
+          btn('Route details', () => ctx.openDetail(r.id));
+          btn('Remove', () => { plan.items.splice(row.i, 1); editing = null; }, 'danger');
+          li.appendChild(a);
+        }
+        list.appendChild(li);
+      }
+      body.appendChild(list);
+      const add = el('div', 'btnrow');
+      const b1 = el('button', 'btn', 'Add route at end'); b1.type = 'button'; b1.onclick = () => openPicker(plan, plan.items.length);
+      const b2 = el('button', 'btn', 'Add break at end'); b2.type = 'button'; b2.onclick = () => { plan.items.push({ type: 'break', min: 15, label: 'Break' }); save(); render(); };
+      add.append(b1, b2); body.appendChild(add);
+    }
+
+    // picker: suggestions ranked by fit at the insertion point
+    function openPicker(plan, at) {
+      const d = $('#detail'); d.textContent = '';
+      const tl = normRows(timeline(plan, plan.items, at));
+      const head = el('header', 'd-head'); const t = el('div', 'd-title'); t.append(el('h2', null, 'Add a route'), el('p', null, `At about ${fmtAbs(plan, tl.t, true)}${tl.area ? ', near ' + tl.area : ''}`));
+      const close = el('button', 'd-close', '×'); close.type = 'button'; close.setAttribute('aria-label', 'Close'); close.onclick = () => d.close();
+      head.append(t, close); d.appendChild(head);
+      const q = el('input', 'search'); q.type = 'search'; q.placeholder = 'Search all routes'; q.style.margin = '0 16px 8px'; q.style.width = 'calc(100% - 32px)';
+      d.appendChild(q);
+      const ol = el('ol', 'routes compact picker'); d.appendChild(ol);
+      const rel = (tl.t - plan.start) / FORMATS[plan.format].dur;
+      const cl = Object.fromEntries(WHO.map(k => [k, climber(plan, k)]));
+      const cands = comp().map(r => {
+        const who = WHO.filter(k => !tl.stats[k].done.has(r.id) && (r.gu ?? -6) <= DIVS[cl[k].div].max);
+        const okNow = who.filter(k => (r.gu ?? -6) <= ceilingAt(plan, cl[k], rel) + 0.01);
+        const w = walkMin(tl.area, r.area);
+        let mins = w + 1; for (const k of (okNow.length ? okNow : who)) mins += leadMin(plan, r, cl[k], tl.t);
+        return { r, who: okNow.length ? okNow : who, mins, w, score: ((r.pts || 0) * (okNow.length || 0.3)) / mins };
+      }).filter(c => c.who.length);
+      const draw = () => {
+        ol.textContent = '';
+        const term = q.value.trim().toLowerCase();
+        const list = (term ? cands.filter(c => (c.r.name + ' ' + c.r.area + ' ' + c.r.n).toLowerCase().includes(term)) : cands.slice().sort((a, b) => b.score - a.score)).slice(0, 60);
+        for (const c of list) {
+          const li = el('li', 'route');
+          li.append(el('span', 'grade ' + (ctx.feelOf(c.r) ? 'feel-' + ctx.feelOf(c.r) : ''), c.r.g), (() => { const m = el('span', 'mid'); m.append(el('span', 'name', c.r.name), el('span', 'sub', `${c.r.area}, ${c.w ? Math.round(c.w) + ' min walk' : 'here'}, ${Math.round(c.mins - c.w)} min to climb`)); return m; })(), el('span', 'right', c.r.pts));
+          li.onclick = () => { plan.items.splice(at, 0, { rid: c.r.id, who: c.who }); save(); d.close(); render(); ctx.onPlanChange(); };
+          ol.appendChild(li);
+        }
+      };
+      q.oninput = draw; draw(); d.showModal();
+    }
+
+    function renderReference(body) {
+      const d = el('details', 'reference'); d.appendChild(el('summary', null, 'Reference: shade by side and the target list'));
+      ctx.renderReference(d); body.appendChild(d);
+    }
+
+    // ---------- map data ----------
+    function mapData() {
+      const plan = active(); if (!plan || !plan.items.length) return null;
+      const tl = normRows(timeline(plan, plan.items)); const A = AREAS();
+      const stops = [], segs = []; let cur = null;
+      for (const row of tl.rows) {
+        if (row.kind === 'route') {
+          if (!cur || cur.area !== row.r.area) { cur = { area: row.r.area, arrive: row.t0, depart: row.t1, count: 0, n: stops.length + 1, done: 0 }; stops.push(cur); }
+          cur.count++; cur.depart = row.t1; if (row.done) cur.done++;
+        }
+      }
+      for (let i = 1; i < stops.length; i++) {
+        const a = A[stops[i - 1].area], b = A[stops[i].area]; if (!a || !b || a.lat == null || b.lat == null) continue;
+        segs.push({ pts: [[a.lat, a.lon], [b.lat, b.lon]], light: light(plan, (stops[i - 1].depart + stops[i].arrive) / 2) });
+      }
+      // expected position at the clock time
+      const T = clockAbs(plan); let exp = null;
+      if (T >= plan.start && T <= plan.start + FORMATS[plan.format].dur) {
+        for (let i = 0; i < stops.length; i++) {
+          const s = stops[i], A1 = A[s.area];
+          if (T >= s.arrive && T <= s.depart && A1?.lat != null) { exp = { lat: A1.lat, lon: A1.lon }; break; }
+          const nx = stops[i + 1];
+          if (nx && T > s.depart && T < nx.arrive) {
+            const a = A[s.area], b = A[nx.area]; if (a?.lat == null || b?.lat == null) break;
+            const f = (T - s.depart) / (nx.arrive - s.depart); exp = { lat: a.lat + (b.lat - a.lat) * f, lon: a.lon + (b.lon - a.lon) * f }; break;
+          }
+        }
+      }
+      const walls = {};
+      for (const s of stops) { const w = walls[s.area] ??= { area: s.area, count: 0, done: 0, visits: [], n: s.n }; w.count += s.count; w.done += s.done; w.visits.push(fmtAbs(plan, s.arrive, true)); }
+      const wallList = Object.values(walls).map(w => ({ ...w, lat: A[w.area]?.lat, lon: A[w.area]?.lon, est: A[w.area]?.est, label: w.visits[0] + (w.visits.length > 1 ? ` +${w.visits.length - 1}` : '') }));
+      return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
+    }
+
+    return { _opt: optimize, _tl: (p) => timeline(p, p.items), setWalkWeight: v => { WALKW = v; }, render, mapData, active, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(p); save(); } } };
+  };
+})();

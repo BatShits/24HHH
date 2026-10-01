@@ -13,7 +13,7 @@
   const STATUS = [['want', 'Want to try'], ['tried', 'Tried'], ['sent', 'Sent'], ['skip', 'Skip']];
   const FEEL = [['soft', 'Soft'], ['on', 'On grade'], ['stiff', 'Stiff']];
 
-  const defaults = { q: '', gmin: '5.2', gmax: '5.14a', side: [], type: [], feel: [], sun: [], list: [], fit: [], sort: 'walk', date: '', hour: 13, theme: 'auto', tab: 'routes', layer: 'topo', map: null };
+  const defaults = { q: '', gmin: '5.2', gmax: '5.14a', side: [], type: [], feel: [], sun: [], list: [], fit: [], sort: 'walk', date: '', hour: 13, theme: 'auto', tab: 'routes', layer: 'topo', map: null, mapMode: 'all' };
   const ui = Object.assign({}, defaults, store.get('hhh.ui', {}));
   if (!Array.isArray(ui.fit)) ui.fit = [];
   let notes = store.get('hhh.notes', {});
@@ -27,9 +27,10 @@
 
   // ---------- date + clock ----------
   function defaultDate() {
-    // next late-September comp weekend after today
-    const now = new Date(); const y = (now.getMonth() > 8 || (now.getMonth() === 8 && now.getDate() > 25)) ? now.getFullYear() + 1 : now.getFullYear();
-    return y + '-09-25';
+    // Friday of the next comp weekend (last full weekend of September)
+    const fri = y => { for (let d = 29; d >= 1; d--) { const dt = new Date(Date.UTC(y, 8, d)); if (dt.getUTCDay() === 6) return new Date(Date.UTC(y, 8, d - 1)); } };
+    const now = new Date(); let f = fri(now.getFullYear()); if (now > new Date(f.getTime() + 2 * 86400000)) f = fri(now.getFullYear() + 1);
+    return f.toISOString().slice(0, 10);
   }
   if (!ui.date) ui.date = defaultDate();
 
@@ -244,6 +245,11 @@
     lines.forEach(l => g.appendChild(el('p', null, l)));
     if (r.v && r.v !== 'no data') g.appendChild(el('p', 'verdict feel-' + feelOf(r), 'Verdict: ' + r.v));
     if (r.tnote) g.appendChild(el('p', 'tnote', r.tnote));
+    if (planner && r.n) {
+      const ap = el('button', 'btn', 'Add to plan'); ap.type = 'button';
+      ap.onclick = () => { const p = planner.active(); if (!p) { ap.textContent = 'Start a plan in the Plan tab first'; return; } p.items.push({ rid: r.id, who: ['me', 'partner'] }); store.set('hhh.plans', planner.state()); ap.textContent = 'Added to ' + p.name; ap.disabled = true; renderMap(); };
+      g.appendChild(ap);
+    }
     if (r.mp) { const aEl = el('a', 'ext', 'Open on Mountain Project'); aEl.href = 'https://www.mountainproject.com/route/' + r.mp; aEl.target = '_blank'; aEl.rel = 'noopener'; g.appendChild(aEl); }
     d.appendChild(g);
 
@@ -299,6 +305,28 @@
   }
   function renderMap() {
     if (!map) return;
+    $('#mapMode').textContent = ui.mapMode === 'plan' ? 'All' : 'Plan';
+    const pd = ui.mapMode === 'plan' && planner ? planner.mapData() : null;
+    $('#planBanner').hidden = !(ui.mapMode === 'plan');
+    if (ui.mapMode === 'plan') {
+      $('#planBanner').textContent = pd ? `${pd.plan.name}: ${pd.stops.length} walls, ${pd.nStops} stops. Path: gold in daylight, dotted after dark. Drag the clock to see where you should be.` : 'No plan yet. Build one in the Plan tab.';
+      const marks = [];
+      if (pd) {
+        for (const s of pd.stops) {
+          if (s.lat == null) continue;
+          const b = el('button', 'mark planstop' + (s.done === s.count ? ' complete' : ''));
+          b.type = 'button'; b.setAttribute('aria-label', `${s.area}, ${s.count} planned routes, first arrival ${s.label}`);
+          b.append(el('span', 'mark-n', s.count), el('span', 'mark-t', s.label), el('span', 'mark-l', s.area.replace(/^The /, '')));
+          b.onclick = () => openArea(s.area);
+          marks.push({ lat: s.lat, lon: s.lon, el: b });
+        }
+        if (pd.exp) { const e = el('span', 'expected'); e.title = pd.expLabel; e.appendChild(el('span', 'exp-l', pd.expLabel)); marks.push({ lat: pd.exp.lat, lon: pd.exp.lon, el: e }); }
+        map.setLines(pd.segs.map(s => ({ pts: s.pts, cls: 'seg light-' + s.light })));
+      } else map.setLines([]);
+      if (me) marks.push(me);
+      map.setMarks(marks); return;
+    }
+    map.setLines([]);
     const list = ROUTES.filter(matches);
     const marks = [];
     for (const [name, a] of Object.entries(AREAS)) {
@@ -331,6 +359,7 @@
     if (!ol.children.length) ol.appendChild(el('li', 'empty', 'No routes here match your filters.'));
     sh.appendChild(ol);
   }
+  $('#mapMode').onclick = () => { ui.mapMode = ui.mapMode === 'plan' ? 'all' : 'plan'; save(); renderMap(); };
   $('#zin').onclick = () => map.zoomAt(map.state.zoom + 1);
   $('#zout').onclick = () => map.zoomAt(map.state.zoom - 1);
   $('#layer').onclick = () => { ui.layer = ui.layer === 'topo' ? 'aerial' : 'topo'; save(); $('#layer').textContent = ui.layer === 'topo' ? 'Aerial' : 'Topo'; map.setLayer(ui.layer); };
@@ -348,10 +377,11 @@
   };
 
   // ---------- plan ----------
-  function renderPlan() {
-    const b = $('#planBody'); b.textContent = '';
+  let planner = null;
+  function renderPlan() { if (planner) planner.render(); }
+  function renderReference(b) {
     const dl = Sun.daylight(ui.date);
-    b.appendChild(el('h2', null, 'Where the shade is'));
+    b.appendChild(el('h3', null, 'Where the shade is'));
     b.appendChild(el('p', 'hint', `For ${new Date(ui.date + 'T12:00').toLocaleDateString(undefined, { month: 'long', day: 'numeric', year: 'numeric' })}: sunrise ${Sun.fmt(dl.rise)}, sunset ${Sun.fmt(dl.set)}. Change the date in the bar at the top.`));
     const sides = [['East side (west-facing walls)', 'W'], ['West side (east-facing walls)', 'E'], ['North Forty (south-facing)', 'S'], ['The Arcade and Street Fighter (northeast-facing)', 'NE']];
     const tbl = el('table', 'shade-table'); const tb = el('tbody');
@@ -363,12 +393,12 @@
     tbl.appendChild(tb); b.appendChild(tbl);
     b.appendChild(el('p', null, 'Rule of thumb: East side in the morning, West side after noon, North Forty early, late, and overnight.'));
 
-    b.appendChild(el('h2', null, 'Target list'));
+    b.appendChild(el('h3', null, 'Target list'));
     b.appendChild(el('p', 'hint', 'Routes the Mountain Project data says climb easier than the comp pays for, 5.8 to 5.11a. Tap one for details.'));
     const bands = {};
     ROUTES.filter(r => r.tier === 'target').forEach(r => { const k = r.g.replace(/[+-]$/, '').replace(/^(5\.1[01])[abcd]$/, (m0, p) => p === '5.10' ? (/[ab]$/.test(r.g) ? '5.10a/b' : '5.10c/d') : p); (bands[k] = bands[k] || []).push(r); });
     for (const k of Object.keys(bands).sort((a, c) => GU(a.split('/')[0]) - GU(c.split('/')[0]))) {
-      b.appendChild(el('h3', null, k));
+      b.appendChild(el('h4', null, k));
       const ol = el('ol', 'routes compact');
       bands[k].sort((x, y) => (y.pts || 0) - (x.pts || 0)).forEach(r => {
         const li = el('li', 'route'); li.dataset.id = r.id;
@@ -379,7 +409,7 @@
       });
       b.appendChild(ol);
     }
-    b.appendChild(el('h2', null, 'Avoid for points'));
+    b.appendChild(el('h3', null, 'Avoid for points'));
     const av = el('ol', 'routes compact');
     ROUTES.filter(r => r.tier === 'avoid for points').forEach(r => {
       const li = el('li', 'route'); li.dataset.id = r.id;
@@ -423,7 +453,7 @@
   }
   function noteStatus(msg) { $('#noteStatus').textContent = msg || `${Object.keys(notes).length} routes have notes on this phone.`; }
   $('#btnExport').onclick = async () => {
-    const payload = { app: 'hhh-field-guide', version: 2, climber: myName() || 'unknown', exported: new Date().toISOString(), profiles, notes };
+    const payload = { app: 'hhh-field-guide', version: 2, climber: myName() || 'unknown', exported: new Date().toISOString(), profiles, notes, plans: planner ? planner.exportState() : undefined };
     const name = `hhh-notes-${(myName() || 'climber').toLowerCase().replace(/\W+/g, '-')}-${new Date().toISOString().slice(0, 10)}.json`;
     const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
     const file = new File([blob], name, { type: 'application/json' });
@@ -445,6 +475,7 @@
       if (data.profiles && data.profiles.me && data.climber && data.climber !== myName()) {
         profiles.partner = Object.assign(blankProfile(), data.profiles.me); saveProfiles(); renderProfiles(); pmsg = ` Partner profile updated from ${data.climber}.`;
       }
+      if (data.plans && planner) planner.importState(data.plans);
       store.set('hhh.notes', notes); renderList(); noteStatus(`Imported ${n} notes from ${data.climber || 'file'}.${pmsg}`);
     } catch (err) { noteStatus('That file isn\'t a notes export from this app.'); }
     e.target.value = '';
@@ -512,6 +543,8 @@
       const [r, a] = await Promise.all([fetch('data/routes.json').then(x => x.json()), fetch('data/areas.json').then(x => x.json())]);
       ROUTES = r; AREAS = a;
     } catch (e) { $('#count').textContent = 'Route data didn\'t load. Open the app once with signal so it can save itself.'; return; }
+    planner = window.Planner({ $, el, store, GU, profiles, ROUTES: () => ROUTES, AREAS: () => AREAS, ui, feelOf, openDetail, showTab, saveUi: save,
+      onPlanChange: () => renderMap(), renderReference, onClock: () => updateClock() });
     renderList(); showTab(ui.tab);
     $('#buildInfo').textContent = 'Version ' + (window.HHH_VERSION || 'dev') + '.';
     if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});

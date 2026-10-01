@@ -219,3 +219,64 @@ textarea { width: 100%; margin-top: 10px; border: 1px solid var(--line); backgro
 .flag.fit-push { background: var(--accent); color: var(--accent-ink); }
 .flag.fit-project, .flag.fit-beyond { background: var(--ink); color: var(--bg); }
 .flag.reach-high, .flag.reach-moderate { background: transparent; color: var(--stiff); border: 1px solid var(--stiff); }
+
+/* ---- planner ---- */
+.plan-top { display: flex; gap: 8px; align-items: center; margin: 14px 0 8px; flex-wrap: wrap; }
+.plan-top select { flex: 1; min-width: 10rem; border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius-s); padding: 9px 10px; }
+.btn { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius-s); padding: 9px 14px; min-height: 40px; }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); font-weight: 600; }
+.btn.ghost { background: none; }
+.btn.danger { color: var(--stiff); border-color: var(--stiff); }
+.setup { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-l); padding: 0 14px 14px; margin-bottom: 14px; }
+.setup summary { padding: 12px 0; font-weight: 700; cursor: pointer; }
+.setup input[type=text], .setup input[type=date], .setup select { border: 1px solid var(--line); background: var(--bg); border-radius: var(--radius-s); padding: 8px 10px; color: var(--ink); max-width: 100%; }
+.pfield { display: flex; flex-direction: column; gap: 5px; margin: 0 0 14px; }
+.plabel { font-size: .85rem; color: var(--muted); }
+.hint.small, .small { font-size: .82rem; }
+.divs { display: grid; gap: 0 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
+.warn { color: var(--stiff); font-size: .9rem; }
+.psum { margin: 6px 0 14px; }
+.sumtable { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.sumtable th, .sumtable td { padding: 6px 6px; border-bottom: 1px solid var(--line); text-align: left; }
+.sumtable tr:first-child th { font-size: .9rem; }
+.sumtable td { font-weight: 600; }
+.pace { font-weight: 700; padding: 8px 10px; border-radius: var(--radius-s); background: var(--surface); border-left: 4px solid var(--on); }
+.pace.ahead { border-color: var(--soft); } .pace.behind { border-color: var(--stiff); }
+.plan-list { list-style: none; padding: 0; margin: 8px 0; }
+.p-stop { display: flex; align-items: baseline; gap: 10px; margin: 16px 0 4px; font-weight: 700; }
+.p-stopn { background: var(--ink); color: var(--bg); border-radius: 999px; min-width: 26px; height: 26px; display: inline-grid; place-items: center; font-size: .85rem; }
+.p-stopname { flex: 1; }
+.p-time { font-variant-numeric: tabular-nums; color: var(--muted); font-size: .85rem; font-weight: 600; white-space: nowrap; }
+.p-walk { font-size: .82rem; color: var(--muted); padding: 2px 0 2px 34px; border-left: 3px solid var(--sun); margin-left: 12px; }
+.p-walk.light-dusk { border-color: var(--partial); } .p-walk.light-night { border-color: var(--dark); }
+.p-break { display: flex; gap: 10px; align-items: center; font-size: .9rem; padding: 8px 10px; margin: 6px 0; background: var(--surface); border-radius: var(--radius-s); }
+.p-break.checkin { border-left: 4px solid var(--accent); font-weight: 600; }
+.p-break .icon { margin-left: auto; border: 0; background: none; font-size: 1.3rem; color: var(--muted); }
+.p-route { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; align-items: start; border-bottom: 1px solid var(--line); padding: 6px 0; }
+.p-route input[type=checkbox] { width: 24px; height: 24px; margin: 10px 0 0 2px; accent-color: var(--soft); }
+.p-route.done .p-name { text-decoration: line-through; color: var(--muted); }
+.p-main { display: grid; grid-template-columns: 4.6rem 3.6rem 1fr; grid-template-areas: "t g n" "x x x"; gap: 2px 8px; text-align: left; border: 0; background: none; padding: 6px 0; width: 100%; align-items: center; }
+.p-main .p-time { grid-area: t; } .p-main .grade { grid-area: g; font-size: .95rem; } .p-main .p-name { grid-area: n; font-weight: 600; }
+.p-tags { grid-area: x; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-left: calc(4.6rem + 8px); font-size: .8rem; }
+.p-tags .pts { min-width: 0; text-align: left; }
+.who { color: var(--muted); }
+.tag { border: 1px solid var(--line); border-radius: 4px; padding: 0 5px; }
+.tag.sun { border-color: var(--sun); color: var(--sun); } .tag.night { background: var(--dark); color: #fff; border-color: var(--dark); } .tag.special { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.p-actions { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px; padding: 6px 0 8px; }
+.p-actions .btn { min-height: 36px; padding: 6px 10px; font-size: .85rem; }
+.reference { margin-top: 24px; border-top: 1px solid var(--line); padding-top: 6px; }
+.reference summary { padding: 10px 0; font-weight: 600; cursor: pointer; }
+h4 { margin: 1em 0 .2em; font-size: .95rem; }
+.picker { padding: 0 16px 16px; }
+/* map: plan mode */
+.map-lines { position: absolute; left: 0; top: 0; overflow: visible; }
+.seg { fill: none; stroke-width: 5; stroke-linecap: round; stroke: var(--sun); opacity: .9; }
+.seg.light-dusk { stroke: var(--partial); stroke-dasharray: 2 7; } .seg.light-night { stroke: #3c4a7a; stroke-dasharray: 1 6; }
+.mark.planstop .mark-n { background: var(--ink); color: var(--bg); }
+.mark.planstop.complete .mark-n { background: var(--soft); }
+.mark-t { font-size: .72rem; font-weight: 600; padding-right: 6px; }
+.map.labels .mark.planstop .mark-t { display: none; }
+.mark.planstop { padding: 0; }
+.expected { position: absolute; left: 0; top: 0; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 50%; background: var(--accent); border: 3px solid #fff; box-shadow: 0 0 0 5px rgb(0 0 0 / .2); }
+.exp-l { position: absolute; left: 22px; top: -4px; white-space: nowrap; font-size: .72rem; font-weight: 700; background: var(--surface); padding: 1px 5px; border-radius: 4px; }
+.plan-banner { position: absolute; left: 8px; right: 8px; bottom: 28px; margin: 0; background: var(--surface); padding: 6px 10px; border-radius: var(--radius-s); font-size: .82rem; box-shadow: 0 1px 4px rgb(0 0 0 / .25); }

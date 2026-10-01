@@ -1,8 +1,8 @@
 // Service worker: keeps the app, route data and saved map tiles available offline.
-const VERSION = '2026-10-01-7fbcbd6';
+const VERSION = '2026-10-01-39abdc7';
 const APP_CACHE = 'hhh-app-' + VERSION;
 const TILE_CACHE = 'hhh-tiles';
-const SHELL = ['./', 'index.html', 'styles.css', 'sun.js', 'map.js', 'app.js', 'version.js', 'manifest.webmanifest',
+const SHELL = ['./', 'index.html', 'styles.css', 'sun.js', 'map.js', 'plan.js', 'app.js', 'version.js', 'manifest.webmanifest',
   'data/routes.json', 'data/areas.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {

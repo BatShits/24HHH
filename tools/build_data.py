@@ -5,7 +5,7 @@ import csv, json, re, os, sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SRC = os.path.join(ROOT, 'data-src'); OUT = os.path.join(ROOT, 'docs', 'data')
 sys.path.insert(0, SRC)
-from aspects import MP_AREA, SHADY, MP_GPS, MP_GPS_EST
+from aspects import MP_AREA, SHADY, MP_GPS, MP_GPS_EST, ZONE_OF, ZONE_CONFIRMED, ZONE_PROVISIONAL_WALLS, SPECIALS
 
 def units(g):
     m = re.match(r'^5\.(\d+)([abcd](/[abcd])?|[+-])?', g or '')
@@ -42,6 +42,9 @@ for i, r in enumerate(csv.DictReader(open(os.path.join(SRC, 'hcr_routes_master.c
         'v': r['verdict'], 'mp': r['mp_url'].rsplit('/', 1)[-1] if r['mp_url'] else '', 'walk': num(r['walk_order']),
         'tier': t['tier'] if t else '', 'tnote': t['note'] if t else '',
         'sunflag': 1 if r.get('route_sun_notes') else 0,
+        'zn': ZONE_OF.get(r['comp_zone']) if r['comp_num'] else None,
+        'zp': 1 if r['comp_num'] and (ZONE_OF.get(r['comp_zone']) not in ZONE_CONFIRMED or r['comp_zone'] in ZONE_PROVISIONAL_WALLS) else 0,
+        'sp': 1 if r['comp_num'] and int(r['comp_num']) in SPECIALS else 0,
     }.items() if v not in (None, '')})
 areas = {}
 for name, (asp, basis, note) in MP_AREA.items():
@@ -57,7 +60,7 @@ print(len(routes), 'routes', len(areas), 'areas', os.path.getsize(os.path.join(O
 # stamp version into service worker + app
 import datetime, hashlib
 h = hashlib.sha1()
-for f in ['index.html','styles.css','sun.js','map.js','app.js','data/routes.json','data/areas.json']:
+for f in ['index.html','styles.css','sun.js','map.js','plan.js','app.js','data/routes.json','data/areas.json']:
     h.update(open(os.path.join(ROOT,'docs',f),'rb').read())
 ver = datetime.date.today().isoformat() + '-' + h.hexdigest()[:7]
 open(os.path.join(ROOT,'docs','version.js'),'w').write(f"window.HHH_VERSION='{ver}';\n")

@@ -73,3 +73,18 @@ MP_GPS_EST = {
  'Land of the Lost': (36.0092, -93.2876),    # between Mullet Buttress and New Meadow
  'Ren and Stimpy': (36.00365, -93.2957),     # between Street Fighter Wall and Prophecy Wall
 }
+
+# Comp zone (scorecard section) -> app zone index 0-23.
+# Confirmed from Zack's 2026 zone counts: 0,4-12,14,16,20,23. Others are a provisional guess (ZONE_PROVISIONAL).
+ZONE_OF = {
+ 'The Park': 0, 'The Westside Pt. 1': 0, 'The Westside Pt. 2': 1, 'Walls of Moria': 2, 'The Black Slabs': 2,
+ 'The Arcade': 3, 'Street Fighter Wall': 4, 'Ren and Stimpy': 5, 'Prophecy Wall': 6, 'Titanic Boulder': 7,
+ 'Doomsday Wall': 8, 'Spooky Dookie': 9, 'Cooridor Area': 10, 'Circus Wall': 10, 'Kindergarten Boulder': 11,
+ 'Wall of Early Morning Light': 11, 'Crimp Scampi Area': 12, 'The Walls of Controversy': 13, 'Groovy Area': 13,
+ 'The Land Beyond': 14, 'Goat Cave': 15, 'Mullet Buttress': 16, 'Land of the Lost': 16, 'New Meadow': 17,
+ 'Middle East': 18, 'Magoo Rock': 19, 'Wrangler Wall': 20, 'Roman Wall': 21, 'Cliffs of Insanity': 22,
+ 'Far East': 23, 'The Carrion Cube': 0,
+}
+ZONE_CONFIRMED = {0, 4, 5, 6, 7, 8, 9, 10, 11, 12, 14, 16, 20, 23}
+ZONE_PROVISIONAL_WALLS = {'The Park', 'The Carrion Cube', 'Mullet Buttress', 'The Black Slabs'}  # wall placement unconfirmed even within a confirmed zone
+SPECIALS = {10: 'Hickadelic Jazzgrass', 651: 'Orange Crush'}

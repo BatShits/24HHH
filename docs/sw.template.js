@@ -2,7 +2,7 @@
 const VERSION = '__VERSION__';
 const APP_CACHE = 'hhh-app-' + VERSION;
 const TILE_CACHE = 'hhh-tiles';
-const SHELL = ['./', 'index.html', 'styles.css', 'sun.js', 'map.js', 'app.js', 'version.js', 'manifest.webmanifest',
+const SHELL = ['./', 'index.html', 'styles.css', 'sun.js', 'map.js', 'plan.js', 'app.js', 'version.js', 'manifest.webmanifest',
   'data/routes.json', 'data/areas.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
