@@ -320,6 +320,7 @@
             const bucket = GU2(gradeLabel(r.gu, r.g));
             if (plan.gmin && bucket < GU2(plan.gmin)) continue;
             if (plan.gmax && bucket > GU2(plan.gmax)) continue;
+            if (plan.darkMax && pre.lt !== 'day' && bucket > GU2(plan.darkMax)) continue; // hardest grade after dark
             if (plan.warm && s.laps < (plan.warmN ?? 3) && bucket > Math.max(GU2(plan.warm), plan.gmin ? GU2(plan.gmin) : -99)) continue; // warm-up routes first
             const lim = plan.gradeMax && plan.gradeMax[gradeLabel(r.gu, r.g)]; if (lim != null && (s.grades[gradeLabel(r.gu, r.g)] || 0) >= lim) continue;
             if (earlyHard && tt - plan.start >= 12 && gu >= c.os) continue;
@@ -348,6 +349,7 @@
             if (plan.side.soft && r.v && r.v.includes('soft')) x *= 1.15;
             if (r.v && r.v.includes('stiff')) x *= 0.85;
             if (earlyHard && tt - plan.start < 12 && (r.gu ?? -6) >= cl[k].os - 1) x *= 1.25 + 0.15 * Math.max(0, (r.gu ?? -6) - cl[k].os);
+            if (plan.darkMax && pre.lt === 'day' && GU2(gradeLabel(r.gu, r.g)) > GU2(plan.darkMax)) x *= 1.5; // get the routes you can't do in the dark done while it's light
             if (dayHard && pre.lt === 'day' && (r.gu ?? -6) >= cl[k].os - 1) x *= 1.25 + 0.15 * Math.max(0, (r.gu ?? -6) - cl[k].os);
             v += x;
           }
@@ -557,6 +559,9 @@
       const rg = el('div', 'target-row');
       rg.append(gSel(plan.gmin, 'Lowest: any', v => { plan.gmin = v; }, 'Lowest grade'), el('span', null, 'to'), gSel(plan.gmax, 'Highest: any', v => { plan.gmax = v; }, 'Highest grade'));
       d.appendChild(field('Grade range', rg, 'Only routes in this range get planned (division and push level still cap the top).'));
+      const dk = el('div', 'target-row'); dk.append(gSel(plan.darkMax, 'No limit', v => { plan.darkMax = v; }, 'Hardest grade after dark'));
+      const dl = Sun.daylight(plan.date);
+      d.appendChild(field('Hardest grade after dark', dk, plan.darkMax ? `From dusk (about ${Sun.fmt(dl.set)}) until it's light again (about ${Sun.fmt(dl.rise)}), nothing harder than ${plan.darkMax}; harder routes get pulled into daylight.` : 'Optional. Caps the grade for climbing in the dark.'));
       const wu = el('div', 'target-row'); const wn = el('input'); wn.type = 'number'; wn.min = 1; wn.max = 20; wn.inputMode = 'numeric'; wn.value = plan.warmN ?? 3; wn.setAttribute('aria-label', 'Number of warm-up routes');
       wn.onchange = () => { plan.warmN = Math.max(1, Math.min(20, Math.round(+wn.value || 3))); save(); render(); };
       const wsel = gSel(plan.warm, 'No warm-up', v => { plan.warm = v; }, 'Warm-up grade'); wsel.style.flex = '1 1 100%';
