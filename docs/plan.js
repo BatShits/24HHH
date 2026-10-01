@@ -715,6 +715,15 @@
       rowOf('Full Horseshoe', (s, a) => yes(a.full));
       rowOf('Golden Horseshoe', (s, a) => yes(a.golden));
       rowOf('Qualifies', (s, a) => yes(a.qual));
+      // efficiency: share of moving time (walking + climbing) spent climbing; breaks and check-in stops don't count
+      let walkM = 0, climbM = 0;
+      for (const r of tl.rows) { const m = (r.t1 - r.t0) * 60; if (r.kind === 'walk') walkM += m; else if (r.kind === 'route') climbM += m; }
+      const pct = climbM + walkM ? climbM / (climbM + walkM) * 100 : 0;
+      const letter = pct >= 92 ? 'A' : pct >= 88 ? 'B' : pct >= 84 ? 'C' : pct >= 80 ? 'D' : 'F';
+      const hm = m => m >= 60 ? `${Math.floor(m / 60)} h ${Math.round(m % 60)} min` : `${Math.round(m)} min`;
+      const teamRow = (label, text, title) => { const tr = el('tr', 'team'); const td = el('td', null, text); td.colSpan = WHO.length; if (title) tr.title = title; tr.append(el('th', null, label), td); tbl.appendChild(tr); };
+      teamRow('Efficiency', `${letter} · ${Math.round(pct)}% climbing`, 'A: 92%+ of moving time climbing, B: 88%+, C: 84%+, D: 80%+, F: under 80%. Breaks and check-in stops are left out; walks to check-in count.');
+      teamRow('Walk : climb', `1 : ${walkM ? (climbM / walkM).toFixed(1) : '∞'} (${hm(walkM)} walking, ${hm(climbM)} climbing)`);
       const grid = el('div', 'sumgrid'); grid.append(tbl, gradeChart(plan, tl)); sec.appendChild(grid);
       const lb = grid.querySelector('.gc-limits'); if (lb) sec.appendChild(lb); // full width under the table and chart
       // why the two lists differ: the inputs each climber was planned with, and routes only one of you leads
