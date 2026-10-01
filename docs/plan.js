@@ -287,6 +287,7 @@
       }
       const nextZones = () => { const open = tour.filter(z => !WHO.every(k => stats[k].zones.has(z))); return new Set(open.slice(0, 2)); };
       const dayHard = plan.format === '24' && !!plan.dayHard;
+      const earlyHard = plan.format === '24' && !!plan.earlyHard; // harder climbs only in the first 12 hours
       const H = plan.horizon ?? 45; // minutes of climbing used to judge a wall
       let guard = 0;
       while (t < end - 0.08 && guard++ < 500) {
@@ -309,6 +310,7 @@
             if (plan.reach !== false && reachBlocked(r, c)) continue;
             if (gu > c.os && (s.hardHour[hr] || 0) >= I.hard) continue;
             if (dayHard && pre.lt !== 'day' && gu >= c.os) continue;
+            if (earlyHard && tt - plan.start >= 12 && gu >= c.os) continue;
             who.push(k);
           }
           if (!who.length) return null;
@@ -331,6 +333,7 @@
             if (plan.side.over60 && (r.ht || 0) >= 60) x *= 1.3;
             if (plan.side.soft && r.v && r.v.includes('soft')) x *= 1.15;
             if (r.v && r.v.includes('stiff')) x *= 0.85;
+            if (earlyHard && tt - plan.start < 12 && (r.gu ?? -6) >= cl[k].os - 1) x *= 1.25 + 0.15 * Math.max(0, (r.gu ?? -6) - cl[k].os);
             if (dayHard && pre.lt === 'day' && (r.gu ?? -6) >= cl[k].os - 1) x *= 1.25 + 0.15 * Math.max(0, (r.gu ?? -6) - cl[k].os);
             v += x;
           }
@@ -521,6 +524,10 @@
         cb.onchange = () => { plan.dayHard = cb.checked; save(); render(); };
         lab.append(cb, el('span', null, 'Save harder climbs for daylight'));
         d.appendChild(field('Daylight', lab, 'Routes at or above onsight get done in daylight; overnight sticks to routes below onsight.'));
+        const lab2 = el('label', 'checkline'); const cb2 = el('input'); cb2.type = 'checkbox'; cb2.checked = !!plan.earlyHard;
+        cb2.onchange = () => { plan.earlyHard = cb2.checked; save(); render(); };
+        lab2.append(cb2, el('span', null, 'Harder climbs in the first 12 hours only'));
+        d.appendChild(field('First half', lab2, `Routes at or above onsight only before ${Sun.fmt((plan.start + 12) % 24)}; the second half sticks to routes below onsight.`));
       }
       const missing = WHO.filter(k => !(profiles[k] || {}).onsight);
       if (missing.length) d.appendChild(el('p', 'warn', 'Add onsight and project grades in the You tab for ' + missing.map(k => k === 'me' ? 'you' : 'your partner').join(' and ') + '. Until then the planner assumes a 5.9 onsight.'));
