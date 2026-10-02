@@ -79,6 +79,6 @@ print('version', ver)
 # catch syntax errors before they ship (a broken sw.js silently stops phones from updating)
 import shutil, subprocess
 if shutil.which('node'):
-    for f in ['sw.js', 'app.js', 'plan.js', 'share.js', 'map.js', 'sun.js']:
+    for f in ['sw.js', 'app.js', 'plan.js', 'share.js', 'photos.js', 'map.js', 'sun.js']:
         r = subprocess.run(['node', '--check', os.path.join(ROOT, 'docs', f)], capture_output=True, text=True)
         if r.returncode: raise SystemExit(f'Syntax error in docs/{f}:\n{r.stderr}')

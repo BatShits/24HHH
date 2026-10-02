@@ -236,6 +236,8 @@
     row(facts, 'MP grade', r.mpg && r.mpg !== r.g ? r.mpg : ''); row(facts, 'MP stars', r.stars != null ? r.stars.toFixed(1) : '');
     row(facts, 'Climbed 2026', r.z26 ? 'Yes' : '');
     d.appendChild(facts);
+    const phSlot = el('div'); d.appendChild(phSlot);
+    if (window.WallPhotos) WallPhotos.forRoute(r.id).then(w => { if (w) { w.classList.add('d-sec'); phSlot.appendChild(w); } });
 
     // sun
     const a = AREAS[r.area];
@@ -386,7 +388,10 @@
     });
     if (!ol.children.length) ol.appendChild(el('li', 'empty', 'No routes here match your filters.'));
     sh.appendChild(ol);
+    sh.dataset.area = name;
+    if (window.WallPhotos) WallPhotos.section(name).then(w => { if (sh.dataset.area === name && !sh.hidden) sh.insertBefore(w, ol); });
   }
+  $('#snap').onclick = () => WallPhotos.capture(null);
   $('#mapMode').onclick = () => { ui.mapMode = ui.mapMode === 'plan' ? 'all' : 'plan'; save(); renderMap(); };
   $('#zin').onclick = () => map.zoomAt(map.state.zoom + 1);
   $('#zout').onclick = () => map.zoomAt(map.state.zoom - 1);
@@ -398,7 +403,7 @@
     $('#locate').setAttribute('aria-pressed', 'true');
     let first = true;
     watch = navigator.geolocation.watchPosition(p => {
-      me = { lat: p.coords.latitude, lon: p.coords.longitude, el: el('span', 'me') };
+      me = { lat: p.coords.latitude, lon: p.coords.longitude, el: el('span', 'me'), t: Date.now() };
       if (first) { map.center(me.lat, me.lon); first = false; }
       renderMap();
     }, () => { $('#locate').removeAttribute('aria-pressed'); watch = null; }, { enableHighAccuracy: true, maximumAge: 10000 });
@@ -481,7 +486,7 @@
   }
   function noteStatus(msg) { $('#noteStatus').textContent = msg || `${Object.keys(notes).length} routes have notes on this phone.`; }
   $('#btnExport').onclick = async () => {
-    const payload = { app: 'hhh-field-guide', version: 2, climber: myName() || 'unknown', exported: new Date().toISOString(), profiles, notes, plans: planner ? planner.exportState() : undefined };
+    const payload = { app: 'hhh-field-guide', version: 2, climber: myName() || 'unknown', exported: new Date().toISOString(), profiles, notes, plans: planner ? planner.exportState() : undefined, photos: window.WallPhotos ? await WallPhotos.exportAll() : undefined };
     const name = `hhh-notes-${(myName() || 'climber').toLowerCase().replace(/\W+/g, '-')}-${new Date().toISOString().slice(0, 10)}.json`;
     const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
     const file = new File([blob], name, { type: 'application/json' });
@@ -504,6 +509,7 @@
         profiles.partner = Object.assign(blankProfile(), data.profiles.me); saveProfiles(); renderProfiles(); pmsg = ` Partner profile updated from ${data.climber}.`;
       }
       if (data.plans && planner) planner.importState(data.plans);
+      if (data.photos && window.WallPhotos) { const k = await WallPhotos.importAll(data.photos); if (k) pmsg += ` ${k} wall photos added.`; }
       store.set('hhh.notes', notes); renderList(); noteStatus(`Imported ${n} notes from ${data.climber || 'file'}.${pmsg}`);
     } catch (err) { noteStatus('That file isn\'t a notes export from this app.'); }
     e.target.value = '';
@@ -591,6 +597,9 @@
     } catch (e) { $('#count').textContent = 'Route data didn\'t load. Open the app once with signal so it can save itself.'; return; }
     planner = window.Planner({ $, el, store, GU, profiles, ROUTES: () => ROUTES, AREAS: () => AREAS, TRAILS: () => TRAILS, ui, feelOf, openDetail, showTab, saveUi: save,
       onPlanChange: () => renderMap(), onProfiles: () => { saveProfiles(); renderProfiles(); renderList(); }, renderReference, onClock: () => updateClock() });
+    WallPhotos.init({ el, ROUTES: () => ROUTES, AREAS: () => AREAS, openDetail, lastFix: () => me,
+      planState: rid => { const p = planner.active(); const it = p && p.items.find(i => i.rid === rid); return it ? (it.done ? 'done' : 'plan') : null; },
+      onPhotos: area => { const sh = $('#areaSheet'); if (!sh.hidden && sh.dataset.area === area) openArea(area); else if (ui.tab === 'map') openArea(area); } });
     renderList(); showTab(ui.tab);
     // a shared plan link: #p=<code>
     const takeHash = () => { if (/^#p=/.test(location.hash)) { const h = location.hash; history.replaceState(null, '', location.pathname + location.search); planner.importShared(h); } };
