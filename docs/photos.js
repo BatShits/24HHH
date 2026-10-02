@@ -223,13 +223,74 @@
     box.appendChild(img); drawMarks(box, rec, { focus: opts.focus, sel: opts.focus, onMark: (b, m, r) => { b.onclick = e => { e.stopPropagation(); C.openDetail(r.id); }; } });
     return box;
   }
-  function view(rec) {
-    const { d } = fullDialog(rec.area);
-    const sc = el('div', 'pd-scroll'); const box = thumb(rec); box.style.width = `min(100%, calc(52vh * ${((rec.w / rec.h) || 1.5).toFixed(4)}))`; sc.appendChild(box); d.appendChild(sc);
-    d.querySelectorAll('.pm').forEach(b => b.addEventListener('click', () => d.close()));
-    d.appendChild(el('p', 'hint small pd-help', `${rec.marks.length} climbs marked · ${new Date(rec.taken).toLocaleDateString()}. Tap a mark for the route. Orange marks are in your plan, green ones are done.`));
-    const act = el('div', 'btnrow pd-act'); const b = el('button', 'btn primary', 'Edit marks'); b.type = 'button'; b.onclick = () => { d.close(); edit(rec, false); };
-    act.appendChild(b); d.appendChild(act);
+  const arOf = rec => (rec.w && rec.h) ? rec.w / rec.h : 1.5;
+  // full-screen viewer: swipe between a set of photos, zoom with pinch, double-tap or the +/- buttons
+  function view(list, start = 0, focus = null) {
+    if (!Array.isArray(list)) list = [list];
+    const { d, h } = fullDialog(list[start].area);
+    const car = el('div', 'pv-car'); d.appendChild(car);
+    const slides = list.map(rec => {
+      const sl = el('div', 'pv-slide'); const box = thumb(rec, { focus });
+      box.querySelectorAll('.pm').forEach(b => { const rid = b.dataset.rid; b.onclick = e => { e.stopPropagation(); d.close(); C.openDetail(rid); }; });
+      sl.appendChild(box); car.appendChild(sl);
+      return { rec, sl, box, z: 1, base: 0 };
+    });
+    const info = el('p', 'hint small pv-info'); d.appendChild(info);
+    const bar = el('div', 'pv-bar');
+    const btn = (t, lab, fn) => { const b = el('button', 'pv-btn', t); b.type = 'button'; b.setAttribute('aria-label', lab); b.onclick = fn; bar.appendChild(b); return b; };
+    let cur = start;
+    const bPrev = btn('‹', 'Previous photo', () => go(cur - 1));
+    const bOut = btn('−', 'Zoom out', () => zoomTo(slides[cur], slides[cur].z / 1.5));
+    const bFit = btn('Fit', 'Fit the photo', () => zoomTo(slides[cur], 1));
+    const bIn = btn('+', 'Zoom in', () => zoomTo(slides[cur], slides[cur].z * 1.5));
+    const bNext = btn('›', 'Next photo', () => go(cur + 1));
+    d.appendChild(bar);
+    const act = el('div', 'btnrow pd-act'); const bEd = el('button', 'btn primary', 'Edit marks'); bEd.type = 'button'; bEd.onclick = () => { const r = slides[cur].rec; d.close(); edit(r, false); };
+    act.appendChild(bEd); d.appendChild(act);
+
+    function layout() {
+      const W = car.clientWidth, H = car.clientHeight;
+      for (const s of slides) { s.base = Math.min(W, H * arOf(s.rec)); size(s); }
+    }
+    function size(s) { s.box.style.width = Math.round(s.base * s.z) + 'px'; s.sl.classList.toggle('zoomed', s.z > 1.01); car.classList.toggle('locked', slides[cur].z > 1.01); }
+    function zoomTo(s, z, cx, cy) {
+      z = Math.max(1, Math.min(6, z)); const sl = s.sl;
+      if (cx == null) { cx = sl.clientWidth / 2; cy = sl.clientHeight / 2; }
+      const R = s.box.getBoundingClientRect(), S = sl.getBoundingClientRect();
+      const fx = (cx + S.left - R.left) / R.width, fy = (cy + S.top - R.top) / R.height; // point under the fingers, as a fraction of the photo
+      s.z = z; size(s);
+      const R2 = s.box.getBoundingClientRect();
+      sl.scrollLeft += (R2.left - S.left) + fx * R2.width - cx; sl.scrollTop += (R2.top - S.top) + fy * R2.height - cy;
+      status();
+    }
+    function status() {
+      const r = slides[cur].rec;
+      h.textContent = r.area;
+      info.textContent = (list.length > 1 ? `${cur + 1} of ${list.length} · ` : '') + `${r.marks.length} marked` + (slides[cur].z > 1.01 ? ` · ${slides[cur].z.toFixed(1)}×` : '') + ' · tap a mark for its route · orange = in plan, green = done';
+      bPrev.disabled = cur === 0; bNext.disabled = cur === list.length - 1; bOut.disabled = bFit.disabled = slides[cur].z <= 1.01; bIn.disabled = slides[cur].z >= 5.99;
+      bPrev.hidden = bNext.hidden = list.length < 2;
+    }
+    function go(i) {
+      if (i < 0 || i >= list.length) return;
+      if (slides[cur].z > 1.01) { slides[cur].z = 1; size(slides[cur]); }
+      cur = i; car.classList.remove('locked'); car.scrollTo({ left: i * car.clientWidth, behavior: 'smooth' }); status();
+    }
+    car.addEventListener('scroll', () => { const i = Math.round(car.scrollLeft / Math.max(1, car.clientWidth)); if (i !== cur && slides[i]) { if (slides[cur].z > 1.01) { slides[cur].z = 1; size(slides[cur]); } cur = i; status(); } }, { passive: true });
+    // pinch and double-tap on each slide
+    for (const s of slides) {
+      const pts = new Map(); let pinch = null, lastTap = 0;
+      s.sl.addEventListener('pointerdown', e => { pts.set(e.pointerId, e); if (pts.size === 2) { const [a, b] = [...pts.values()]; const S = s.sl.getBoundingClientRect(); pinch = { d: Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY), z: s.z, cx: (a.clientX + b.clientX) / 2 - S.left, cy: (a.clientY + b.clientY) / 2 - S.top }; } });
+      s.sl.addEventListener('pointermove', e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, e); if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; zoomTo(s, pinch.z * Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / pinch.d, pinch.cx, pinch.cy); } });
+      const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
+      s.sl.addEventListener('pointerup', e => {
+        up(e); if (e.target.closest('.pm')) return;
+        const now = Date.now(); if (now - lastTap < 300) { const S = s.sl.getBoundingClientRect(); zoomTo(s, s.z > 1.01 ? 1 : 2.5, e.clientX - S.left, e.clientY - S.top); lastTap = 0; } else lastTap = now;
+      });
+      s.sl.addEventListener('pointercancel', up);
+    }
+    const ro = new ResizeObserver(() => { layout(); car.scrollLeft = cur * car.clientWidth; }); ro.observe(car);
+    d.addEventListener('close', () => ro.disconnect());
+    layout(); car.scrollLeft = start * car.clientWidth; status();
   }
   // a wall's photos for the map sheet
   async function section(area) {
@@ -240,7 +301,7 @@
     let ps = []; try { ps = await byArea(area); } catch (e) { wrap.appendChild(el('p', 'hint small', 'Photos aren\'t available in this browser.')); return wrap; }
     if (!ps.length) wrap.appendChild(el('p', 'hint small', 'No photos yet. Take one from the base of the wall and mark where each climb starts.'));
     const row = el('div', 'photo-row');
-    for (const p of ps) { const t = thumb(p); t.classList.add('mini'); t.onclick = () => view(p); t.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); view(p); }; }); row.appendChild(t); }
+    ps.forEach((p, i) => { const t = thumb(p); t.classList.add('mini'); t.style.width = `calc(var(--thumb-h) * ${arOf(p).toFixed(4)})`; t.onclick = () => view(ps, i); t.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); view(ps, i); }; }); row.appendChild(t); });
     wrap.appendChild(row);
     return wrap;
   }
@@ -249,7 +310,7 @@
     let ps = []; try { ps = (await all()).filter(p => p.marks.some(m => m.rid === rid)); } catch (e) { return null; }
     if (!ps.length) return null;
     const wrap = el('div', 'photos'); wrap.appendChild(el('h3', null, 'Where it starts'));
-    for (const p of ps) { const t = thumb(p, { focus: rid }); t.onclick = () => view(p); wrap.appendChild(t); }
+    const row = el('div', 'photo-row'); ps.forEach((p, i) => { const t = thumb(p, { focus: rid }); t.classList.add('mini'); t.style.width = `calc(var(--thumb-h) * ${arOf(p).toFixed(4)})`; t.onclick = () => view(ps, i, rid); t.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); view(ps, i, rid); }; }); row.appendChild(t); }); wrap.appendChild(row);
     return wrap;
   }
 
