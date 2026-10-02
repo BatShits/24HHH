@@ -124,9 +124,26 @@
       const rate = rel <= -3 ? 18 : rel <= -2 ? 15 : rel <= -1 ? 12 : rel <= 0 ? 9 : rel <= 1 ? 7 : 5; // ft per minute
       let m = 1.5 + (r.ht || 45) / rate + 1;
       if (r.type === 'trad') m = m * 1.35 + 3;
-      const lt = pre ? pre.lt : light(plan, abs); if (lt !== 'day') m *= 1.15;
-      const hrs = abs - plan.start; if (hrs > 12) m *= 1.1; if (hrs > 18) m *= 1.1;
-      return m * (plan.manual ? (MANUAL_PACE[plan.intensity] || 1) : (plan.paceF || 1));
+      const lt = pre ? pre.lt : light(plan, abs);
+      return m * slowF(plan, abs, lt) * (plan.manual ? (MANUAL_PACE[plan.intensity] || 1) : (plan.paceF || 1));
+    }
+    // Real teams front-load: in 2026 the top 24-hour Intermediates logged about 40 / 35 / 23 / 15 laps per 6-hour block.
+    // Leads get slower as the hours pile up and slower again in the dark. plan.fatigue === false turns this off.
+    const FATIGUE = { 24: 0.03, 12: 0.015 }, DARK_SLOW = 1.25;
+    const CORE_H = { 24: 8, 12: 4 }; // hours to favour the North Forty core at the start
+    function slowF(plan, abs, lt) {
+      if (plan.fatigue === false) return lt && lt !== 'day' ? 1.1 : 1;
+      const hrs = Math.max(0, abs - plan.start);
+      return (1 + (FATIGUE[plan.format] ?? 0.03) * hrs) * (lt && lt !== 'day' ? DARK_SLOW : 1);
+    }
+    // Lines at the easy end routes: everyone going for Full Horseshoe wants the 5.8 bookends
+    // (Zack waited over 1 h 20 min at Hickadelic Jazzgrass on the 2026 12-hour). plan.lineMin overrides the default.
+    const LINE_DEFAULT = { 12: 60, 24: 25 };
+    const lineMin = plan => plan.lineMin ?? LINE_DEFAULT[plan.format] ?? 30;
+    function queueMin(plan, r) {
+      if (!r.sp) return 0;
+      const L = lineMin(plan);
+      return (r.gu ?? 0) <= -1 ? L : Math.round(L / 6); // the 5.8 and easier end routes draw the crowd; harder ones have short lines
     }
     const locOf = a => a === CHECKIN ? CHECKIN_LOC : AREAS()[a];
     const placeName = a => a === CHECKIN ? CHECKIN_LOC.name : a;
@@ -210,8 +227,9 @@
         const w = walkMin(area, r.area, plan);
         if (w) { rows.push({ kind: 'walk', t0: t, t1: t + w / 60, from: area, to: r.area, light: light(plan, t + w / 120) }); t += w / 60; }
         const who = it.who.filter(k => WHO.includes(k));
-        let m = 1; for (const k of who) m += leadMin(plan, r, climber(plan, k), t);
-        const row = { kind: 'route', t0: t, t1: t + m / 60, r, who, i, area: r.area, sun: sunAt(plan, r, t), light: light(plan, t), done: it.done };
+        const q = queueMin(plan, r);
+        let m = 1 + q; for (const k of who) m += leadMin(plan, r, climber(plan, k), t + q / 60);
+        const row = { kind: 'route', t0: t, t1: t + m / 60, r, who, i, area: r.area, sun: sunAt(plan, r, t), light: light(plan, t), done: it.done, queue: q };
         rows.push(row); t = row.t1; area = r.area;
         applyRoute(plan, stats, r, who, t);
       }
@@ -305,6 +323,7 @@
       }
       const nextZones = () => { const open = tour.filter(z => !WHO.every(k => stats[k].zones.has(z))); return new Set(open.slice(0, 2)); };
       const earlyHard = plan.format === '24' && !!plan.earlyHard; // harder climbs only in the first 12 hours
+      const coreFirst = plan.coreFirst !== false && !['full', 'golden'].some(g => goalsOf(plan).includes(g)) && !(plan.startWalls || []).length;
       const H = plan.horizon ?? 45; // minutes of climbing used to judge a wall
       let guard = 0;
       while (t < end - 0.08 && guard++ < 500) {
@@ -343,7 +362,8 @@
             who.push(k);
           }
           if (!who.length) return null;
-          let mins = 1; for (const k of who) mins += leadMin(plan, r, cl[k], tt, pre);
+          // a needed end route is worth its line; the line still counts in full on the timeline
+          let mins = 1 + queueMin(plan, r) * (r.sp && who.some(k => !stats[k].specials.has(r.sp)) ? 0.3 : 1); for (const k of who) mins += leadMin(plan, r, cl[k], tt, pre);
           let v = 0;
           for (const k of who) {
             const s = stats[k]; let x = 0;
@@ -428,6 +448,8 @@
           // shade: the West and North walls are under tree cover, so the thing to dodge is the open East side in the afternoon sun
           if (sp === 'shade' && rs[0].side === 'East' && hh >= 12 && pre.lt === 'day') { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.4 : st === 'partial' ? 0.65 : 0.9; }
           else if (sp === 'sun' && pre.lt === 'day') { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 1 : st === 'partial' ? 0.85 : st === 'shade' ? 0.65 : 0.8; }
+          // what the top teams do: the dense North Forty core first, while fresh; the ends and the East side later
+          if (coreFirst && t - plan.start < CORE_H[plan.format] && rs[0].side !== 'North') sunF *= 0.75;
           const opts = []; for (const r of rs) { const e = evalRoute(r, t + w / 60); if (e && t + (w + e.mins) / 60 <= end && !(strict && plan.together !== false && e.who.length < WHO.length)) opts.push(e); }
           if (!opts.length) continue;
           opts.sort((x, y) => y.v / y.mins - x.v / x.mins);
@@ -950,8 +972,13 @@
       addSel.onchange = () => { if (addSel.value) { list.push(addSel.value); save(); render(); } };
       sw.appendChild(addSel);
       d.appendChild(field('Start at', sw, list.length ? 'The plan starts at these walls in this order, staying at each until moving on pays off, then plans the rest itself.' : 'Optional. Pick walls to start with, in order; the planner takes it from there.'));
-      d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['reach', 'Skip routes too reachy']], { together: plan.together !== false, reach: plan.reach !== false },
+      d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['reach', 'Skip routes too reachy'], ['coreFirst', 'Start in the North Forty core'], ['fatigue', 'Slow down at night']], { together: plan.together !== false, reach: plan.reach !== false, coreFirst: plan.coreFirst !== false, fatigue: plan.fatigue !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
+      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', `Leads take longer as the hours go on (about ${Math.round((FATIGUE[plan.format] ?? 0.03) * 100)}% more per hour climbed) and 25% longer in the dark, like the top 2026 teams, who did most of their laps by 10 pm.`));
+      { const li = el('input'); li.type = 'number'; li.inputMode = 'numeric'; li.min = 0; li.max = 180; li.value = lineMin(plan);
+        li.onchange = () => { const v = Math.max(0, Math.min(180, Math.round(+li.value || 0))); plan.lineMin = v === LINE_DEFAULT[plan.format] ? undefined : v; save(); render(); };
+        const lr = el('div', 'target-row'); lr.append(li, el('span', null, 'minutes'));
+        d.appendChild(field('Line at the 5.8 end routes', lr, 'Expected wait at Hickadelic Jazzgrass and the Montezuma routes (Zack waited over 1 h 20 min at Hickadelic on the 2026 12-hour). Harder end routes get a sixth of this. The planner weighs it when picking end routes.')); }
       if (plan.format === '24') {
         const lab2 = el('label', 'checkline'); const cb2 = el('input'); cb2.type = 'checkbox'; cb2.checked = !!plan.earlyHard;
         cb2.onchange = () => { plan.earlyHard = cb2.checked; save(); render(); };
@@ -1204,6 +1231,7 @@
         if (row.sun === 'sun' && row.light === 'day') tags.appendChild(el('span', 'tag sun', 'Sun'));
         if (row.light !== 'day') tags.appendChild(el('span', 'tag night', row.light === 'night' ? 'Dark' : dh(plan, row.t0).hour < 12 ? 'Dawn' : 'Dusk'));
         if (r.sp) tags.appendChild(el('span', 'tag special', (r.sp === 'E' ? 'East' : 'West') + ' end'));
+        if (row.queue) tags.appendChild(el('span', 'tag queue', `Line ~${row.queue} min`));
         tags.appendChild(el('span', 'tag ' + (r.type === 'trad' ? 'trad' : 'sport'), r.type === 'trad' ? 'Trad' : r.type === 'mixed' ? 'Mixed' : 'Sport'));
         main.appendChild(tags);
         main.onclick = () => { editing = editing === row.i ? null : row.i; render(); };
@@ -1271,7 +1299,7 @@
         const who = WHO.filter(k => !tl.stats[k].done.has(r.id) && !inPlan[k].has(r.id) && (r.gu ?? -6) <= DIVS[cl[k].div].max);
         const okNow = who.filter(k => (r.gu ?? -6) <= ceilingAt(plan, cl[k], rel) + 0.01);
         const w = walkMin(tl.area, r.area, plan);
-        let mins = w + 1; for (const k of (okNow.length ? okNow : who)) mins += leadMin(plan, r, cl[k], tl.t);
+        let mins = w + 1 + queueMin(plan, r); for (const k of (okNow.length ? okNow : who)) mins += leadMin(plan, r, cl[k], tl.t);
         return { r, who: okNow.length ? okNow : who, mins, w, score: ((r.pts || 0) * (okNow.length || 0.3)) / mins };
       }).filter(c => c.who.length);
       const draw = () => {
