@@ -203,7 +203,8 @@ textarea { width: 100%; margin-top: 10px; border: 1px solid var(--line); backgro
   position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: auto auto auto auto auto; justify-content: space-evenly;
   background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom);
 }
-.tabs button { border: 0; background: none; height: 58px; padding: 0 clamp(1px, 1vw, 6px); white-space: nowrap; font-size: clamp(.6rem, 3.2vw, .9rem); letter-spacing: -.01em; color: var(--muted); font-weight: 600; }
+.tabs button { border: 0; background: none; height: 58px; padding: 0 clamp(1px, 1vw, 6px); white-space: nowrap; font-size: clamp(.6rem, 3.7vw, .95rem); letter-spacing: -.01em; color: var(--muted); font-weight: 600; }
+.tab-ico { width: 24px; height: 24px; display: block; margin: 0 auto; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linejoin: round; }
 .tabs button[aria-current="page"] { color: var(--ink); box-shadow: inset 0 3px 0 var(--accent); }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
