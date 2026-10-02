@@ -32,15 +32,30 @@
       navigator.geolocation.getCurrentPosition(p => res({ lat: p.coords.latitude, lon: p.coords.longitude, t: Date.now() }), () => res(null), { enableHighAccuracy: true, timeout, maximumAge: 30000 });
     });
   }
+  // load a picked photo robustly (iOS can reject img.decode() on big camera images, and toBlob can return null)
+  function loadImg(file) {
+    return new Promise((res, rej) => {
+      const img = new Image(), u = URL.createObjectURL(file);
+      img.onload = () => { URL.revokeObjectURL(u); res(img); };
+      img.onerror = () => { URL.revokeObjectURL(u); rej(new Error('This photo format couldn\'t be opened. In iPhone Settings > Camera > Formats, choose Most Compatible, or pick a JPEG.')); };
+      img.src = u;
+    });
+  }
   async function shrink(file) {
-    const img = new Image(); const u = URL.createObjectURL(file); img.src = u;
-    try { await img.decode(); } finally { URL.revokeObjectURL(u); }
-    const s = Math.min(1, MAXPX / Math.max(img.naturalWidth, img.naturalHeight));
-    const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * s); cv.height = Math.round(img.naturalHeight * s);
-    cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height);
-    const blob = await new Promise(r => cv.toBlob(r, 'image/jpeg', 0.82));
+    let src, W, H;
+    try { src = await createImageBitmap(file, { imageOrientation: 'from-image' }); W = src.width; H = src.height; }
+    catch (e) { src = await loadImg(file); W = src.naturalWidth; H = src.naturalHeight; }
+    const s = Math.min(1, MAXPX / Math.max(W, H));
+    const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(W * s)); cv.height = Math.max(1, Math.round(H * s));
+    cv.getContext('2d').drawImage(src, 0, 0, cv.width, cv.height);
+    if (src.close) src.close();
+    let blob = await new Promise(r => { try { cv.toBlob(r, 'image/jpeg', 0.82); } catch (e) { r(null); } });
+    if (!blob) { try { blob = await (await fetch(cv.toDataURL('image/jpeg', 0.82))).blob(); } catch (e) { blob = null; } }
+    if (!blob || blob.size < 1000) return { blob: file, w: W, h: H }; // keep the original if shrinking failed
     return { blob, w: cv.width, h: cv.height };
   }
+  const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
+  function toast(msg) { let t = document.getElementById('photoToast'); if (!t) { t = el('div', 'photo-toast'); t.id = 'photoToast'; document.body.appendChild(t); } t.textContent = msg; t.hidden = !msg; }
   const routesAt = area => C.ROUTES().filter(r => r.area === area).sort((a, b) => (a.n ?? 1e9) - (b.n ?? 1e9) || (a.walk ?? 1e9) - (b.walk ?? 1e9));
   const label = r => r.n != null ? String(r.n) : '•';
 
@@ -140,7 +155,9 @@
   }
 
   // ---------- capture ----------
-  const fileIn = document.createElement('input'); fileIn.type = 'file'; fileIn.accept = 'image/*'; fileIn.setAttribute('capture', 'environment'); fileIn.hidden = true;
+  // a real (not display:none) file input: some phones won't deliver the picture to a hidden one
+  const fileIn = document.createElement('input'); fileIn.type = 'file'; fileIn.accept = 'image/*'; fileIn.setAttribute('capture', 'environment');
+  fileIn.className = 'photo-input'; fileIn.tabIndex = -1; fileIn.setAttribute('aria-hidden', 'true');
   document.body.appendChild(fileIn);
   let pending = null;
   function capture(area) {
@@ -148,18 +165,27 @@
     pending = { area, where: area ? null : here() };
     fileIn.value = ''; fileIn.click();
   }
-  fileIn.onchange = async () => {
-    const f = fileIn.files[0]; if (!f || !pending) return;
-    const job = pending; pending = null;
-    const { blob, w, h } = await shrink(f);
-    let area = job.area, nearTxt = '';
-    if (!area) {
-      const pos = await job.where; const nw = pos && nearestWall(pos);
-      if (nw && nw.d < 400) { area = nw.name; nearTxt = `GPS: ${Math.round(nw.d)} m from ${nw.name}`; }
-      else nearTxt = pos ? 'GPS: not near a wall. Pick it above.' : 'No GPS fix. Pick the wall above.';
+  async function picked() {
+    const f = fileIn.files && fileIn.files[0]; if (!f) return;
+    const job = pending || { area: null, where: here() }; pending = null;
+    toast('Loading photo…');
+    try {
+      const { blob, w, h } = await shrink(f);
+      let area = job.area, nearTxt = '';
+      if (!area) {
+        toast('Finding the nearest wall…');
+        const pos = await withTimeout(job.where, 5000); const nw = pos && nearestWall(pos);
+        if (nw && nw.d < 400) { area = nw.name; nearTxt = `GPS: ${Math.round(nw.d)} m from ${nw.name}`; }
+        else nearTxt = pos ? 'GPS: not near a wall. Pick it above.' : 'No GPS fix. Pick the wall above.';
+      }
+      toast('');
+      await edit({ id: 'ph' + Date.now().toString(36), area, taken: new Date().toISOString(), w, h, blob, marks: [], near: nearTxt }, true);
+    } catch (e) {
+      toast(''); const { d } = fullDialog('Photo didn\'t load'); d.appendChild(el('p', 'pd-msg', (e && e.message) || String(e)));
     }
-    edit({ id: 'ph' + Date.now().toString(36), area, taken: new Date().toISOString(), w, h, blob, marks: [], near: nearTxt }, true);
-  };
+    fileIn.value = '';
+  }
+  fileIn.addEventListener('change', picked);
 
   // ---------- viewing ----------
   function thumb(rec, opts = {}) {
