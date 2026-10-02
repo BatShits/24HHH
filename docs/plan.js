@@ -626,7 +626,7 @@
       const mins = L.delta == null ? null : Math.round(L.delta * 60);
       const sch = el('div', 'go-sched ' + (mins == null || mins === 0 ? 'even' : mins > 0 ? 'ahead' : 'behind'));
       sch.append(el('span', 'go-big', mins == null ? '–' : (mins > 0 ? '+' : mins < 0 ? '−' : '') + Math.abs(mins)),
-        el('span', 'go-lbl', mins == null ? 'Schedule starts at the gun' : mins > 0 ? 'minutes ahead of schedule' : mins < 0 ? 'minutes behind schedule' : 'right on schedule'));
+        el('span', 'go-lbl', mins == null ? `ahead or behind schedule, in minutes. Starts counting at the gun (${fmtAbs(plan, L.start, true)}).` : mins > 0 ? 'minutes ahead of schedule' : mins < 0 ? 'minutes behind schedule' : 'right on schedule'));
       const rate = L.el >= 1 / 6 ? L.k / L.el : null, plannedRate = L.R.length / L.F.dur;
       const proj = rate != null ? Math.round(L.k + rate * L.left) : null;
       const sgn = (v, unit) => `<b class="${v > 0 ? 'pos' : v < 0 ? 'neg' : 'zero'}">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}</b> ${unit}`;
