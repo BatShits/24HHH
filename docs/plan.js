@@ -627,19 +627,27 @@
       const sch = el('div', 'go-sched ' + (mins == null || mins === 0 ? 'even' : mins > 0 ? 'ahead' : 'behind'));
       sch.append(el('span', 'go-big', mins == null ? '–' : (mins > 0 ? '+' : mins < 0 ? '−' : '') + Math.abs(mins)),
         el('span', 'go-lbl', mins == null ? 'Schedule starts at the gun' : mins > 0 ? 'minutes ahead of schedule' : mins < 0 ? 'minutes behind schedule' : 'right on schedule'));
-      box.appendChild(sch);
       const rate = L.el >= 1 / 6 ? L.k / L.el : null, plannedRate = L.R.length / L.F.dur;
       const proj = rate != null ? Math.round(L.k + rate * L.left) : null;
+      const sgn = (v, unit) => `<b class="${v > 0 ? 'pos' : v < 0 ? 'neg' : 'zero'}">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}</b> ${unit}`;
+      if (now >= L.start) {
+        const dr = L.k - L.plannedByNow, lines = el('div', 'go-lines');
+        lines.innerHTML = `<span>${sgn(dr, Math.abs(dr) === 1 ? 'route' : 'routes')} vs plan (${L.k} done, ${L.plannedByNow} planned by now)</span>` +
+          (rate != null ? `<span>${sgn(+(rate - plannedRate).toFixed(1), 'routes/hour')} vs plan (${rate.toFixed(1)} vs ${plannedRate.toFixed(1)})</span>` : '') +
+          (proj != null ? `<span>${sgn(proj - L.R.length, 'routes')} at the finish at this rate (${proj} vs ${L.R.length})</span>` : '');
+        sch.appendChild(lines);
+      }
+      box.appendChild(sch);
       const tiles = [
-        ['Routes done', `${L.k}`, `of ${L.R.length} planned · ${L.plannedByNow} planned by now`],
-        ['Routes per hour', rate != null ? rate.toFixed(1) : '–', `since the start · plan ${plannedRate.toFixed(1)}`],
+        ['Routes done', `${L.k}`, `of ${L.R.length} planned · ${L.plannedByNow} planned by now`, now >= L.start ? (L.k >= L.plannedByNow ? 'pos' : 'neg') : ''],
+        ['Routes per hour', rate != null ? rate.toFixed(1) : '–', `since the start · plan ${plannedRate.toFixed(1)}`, rate != null ? (rate >= plannedRate - 0.05 ? 'pos' : 'neg') : ''],
         ['Last hour', `${L.lastHr}`, 'routes in the last 60 min'],
-        ['Projected', proj != null ? `${proj}` : '–', 'routes by the end at this rate'],
+        ['Projected', proj != null ? `${proj}` : '–', `routes by the end at this rate · plan ${L.R.length}`, proj != null ? (proj >= L.R.length ? 'pos' : 'neg') : ''],
         ['Since last climb', L.lastAt != null && now >= L.start ? hm(Math.min(now, L.end) - L.lastAt) : '–', L.lastAt != null ? 'ticked at ' + fmtAbs(plan, L.lastAt, true) : 'nothing ticked yet'],
         ['Elapsed', now > L.start ? hm(Math.min(now, L.end) - L.start) : '0 min', `${hm(L.left)} left`],
       ];
       const grid = el('div', 'go-grid');
-      for (const [t, v, sub] of tiles) { const c = el('div', 'go-tile'); c.append(el('span', 'go-t', t), el('span', 'go-v', v), el('span', 'go-sub', sub)); grid.appendChild(c); }
+      for (const [t, v, sub, cls] of tiles) { const c = el('div', 'go-tile'); c.append(el('span', 'go-t', t), el('span', 'go-v' + (cls ? ' ' + cls : ''), v), el('span', 'go-sub', sub)); grid.appendChild(c); }
       box.appendChild(grid);
       // next up
       if (L.next && now < L.end) {
