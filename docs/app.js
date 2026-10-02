@@ -552,7 +552,7 @@
     if (t === 'plan') renderPlan();
     $('#clock').hidden = t === 'go'; // Go Time runs on real time, not the planning clock
     if (t === 'go' && planner) planner.renderGo($('#goBody'));
-    if (t === 'me') { renderProfiles(); noteStatus(); offlineStatus(); }
+    if (t === 'me') { renderProfiles(); noteStatus(); offlineStatus(); if (window.WallPhotos) WallPhotos.manage($('#photoList')); }
   }
   $$('.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 
@@ -599,7 +599,7 @@
       onPlanChange: () => renderMap(), onProfiles: () => { saveProfiles(); renderProfiles(); renderList(); }, renderReference, onClock: () => updateClock() });
     WallPhotos.init({ el, ROUTES: () => ROUTES, AREAS: () => AREAS, openDetail, lastFix: () => me,
       planState: rid => { const p = planner.active(); const it = p && p.items.find(i => i.rid === rid); return it ? (it.done ? 'done' : 'plan') : null; },
-      onPhotos: area => { const sh = $('#areaSheet'); if (!sh.hidden && sh.dataset.area === area) openArea(area); else if (ui.tab === 'map') openArea(area); } });
+      onPhotos: area => { if (ui.tab === 'me') WallPhotos.manage($('#photoList')); const sh = $('#areaSheet'); if (!sh.hidden && sh.dataset.area === area) openArea(area); else if (ui.tab === 'map') openArea(area); } });
     renderList(); showTab(ui.tab);
     // a shared plan link: #p=<code>
     const takeHash = () => { if (/^#p=/.test(location.hash)) { const h = location.hash; history.replaceState(null, '', location.pathname + location.search); planner.importShared(h); } };

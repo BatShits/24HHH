@@ -246,7 +246,17 @@
     const bNext = btn('›', 'Next photo', () => go(cur + 1));
     d.appendChild(bar);
     const act = el('div', 'btnrow pd-act'); const bEd = el('button', 'btn primary', 'Edit marks'); bEd.type = 'button'; bEd.onclick = () => { const r = slides[cur].rec; d.close(); edit(r, false); };
-    act.appendChild(bEd); d.appendChild(act);
+    const bDel = el('button', 'btn danger', 'Delete photo'); bDel.type = 'button'; let armed = 0;
+    bDel.onclick = async () => {
+      if (Date.now() - armed > 4000) { armed = Date.now(); bDel.textContent = 'Tap again to delete'; setTimeout(() => { if (Date.now() - armed >= 4000) bDel.textContent = 'Delete photo'; }, 4100); return; }
+      armed = 0; bDel.textContent = 'Delete photo';
+      const r = slides[cur].rec; await del(r.id);
+      slides[cur].sl.remove(); slides.splice(cur, 1); list.splice(cur, 1);
+      C.onPhotos(r.area);
+      if (!slides.length) { d.close(); return; }
+      cur = Math.min(cur, slides.length - 1); layout(); car.scrollLeft = cur * car.clientWidth; status();
+    };
+    act.append(bEd, bDel); d.appendChild(act);
 
     function layout() {
       const W = car.clientWidth, H = car.clientHeight;
@@ -330,5 +340,27 @@
     return n;
   }
 
-  window.WallPhotos = { init(ctx) { C = ctx; }, capture, section, forRoute, exportAll, importAll, count: async () => { try { return (await all()).length; } catch (e) { return 0; } } };
+  // list every photo on this phone with delete buttons (Climber Setup)
+  let manageGen = 0;
+  async function manage(box) {
+    const gen = ++manageGen;
+    let ps = []; try { ps = (await all()).sort((a, b) => a.taken < b.taken ? 1 : -1); } catch (e) { box.textContent = ''; box.appendChild(el('p', 'hint small', 'Photos aren\'t available in this browser.')); return; }
+    if (gen !== manageGen) return; // a newer refresh is on its way
+    box.textContent = '';
+    if (!ps.length) { box.appendChild(el('p', 'hint small', 'No wall photos on this phone.')); return; }
+    const ul = el('ul', 'ph-list');
+    ps.forEach((p, i) => {
+      const li = el('li', 'ph-item'); const im = el('img'); im.src = urlOf(p); im.alt = ''; im.onclick = () => view(ps, i);
+      const tx = el('div', 'ph-tx'); tx.append(el('strong', null, p.area || 'No wall'), el('span', 'hint small', `${(t => t.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + Sun.fmt(t.getHours() + t.getMinutes() / 60))(new Date(p.taken))} · ${p.marks.length} marked`));
+      const x = el('button', 'btn danger', 'Delete'); x.type = 'button'; let armed = 0;
+      x.onclick = async () => { if (Date.now() - armed > 4000) { armed = Date.now(); x.textContent = 'Sure?'; return; } await del(p.id); C.onPhotos(p.area); manage(box); };
+      li.append(im, tx, x); ul.appendChild(li);
+    });
+    box.appendChild(ul);
+    const row = el('div', 'btnrow'); const all_ = el('button', 'btn danger', `Delete all ${ps.length} photos`); all_.type = 'button'; let armed = 0;
+    all_.onclick = async () => { if (Date.now() - armed > 4000) { armed = Date.now(); all_.textContent = 'Tap again to delete all'; return; } for (const p of ps) await del(p.id); manage(box); };
+    row.appendChild(all_); box.appendChild(row);
+  }
+
+  window.WallPhotos = { manage, init(ctx) { C = ctx; }, capture, section, forRoute, exportAll, importAll, count: async () => { try { return (await all()).length; } catch (e) { return 0; } } };
 })();
