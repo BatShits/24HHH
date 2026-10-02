@@ -264,7 +264,7 @@
     if (r.tnote) g.appendChild(el('p', 'tnote', r.tnote));
     if (planner && r.n) {
       const ap = el('button', 'btn', 'Add to plan'); ap.type = 'button';
-      ap.onclick = () => { const p = planner.active(); if (!p) { ap.textContent = 'Start a plan in the Plan tab first'; return; } p.items.push({ rid: r.id, who: ['me', 'partner'] }); store.set('hhh.plans', planner.state()); ap.textContent = 'Added to ' + p.name; ap.disabled = true; renderMap(); };
+      ap.onclick = () => { const p = planner.active(); if (!p) { ap.textContent = 'Start a plan in the Planning tab first'; return; } p.items.push({ rid: r.id, who: ['me', 'partner'] }); store.set('hhh.plans', planner.state()); ap.textContent = 'Added to ' + p.name; ap.disabled = true; renderMap(); };
       g.appendChild(ap);
     }
     if (r.mp) { const aEl = el('a', 'ext', 'Open on Mountain Project'); aEl.href = 'https://www.mountainproject.com/route/' + r.mp; aEl.target = '_blank'; aEl.rel = 'noopener'; g.appendChild(aEl); }
@@ -279,7 +279,7 @@
         const bits = [];
         if (f) bits.push(FITLABEL[f].toLowerCase());
         if (r.reach) bits.push(rc ? `${rc} reach risk at ${fmtHt(+p.ht)}${p.ape ? ` (${p.ape > 0 ? '+' : ''}${p.ape} in ape)` : ''}` : 'reach mentioned; add height to judge');
-        fs.appendChild(el('p', null, `${p.name || 'Unnamed climber'}: ${bits.length ? bits.join(', ') : 'set grades in the You tab'}.`));
+        fs.appendChild(el('p', null, `${p.name || 'Unnamed climber'}: ${bits.length ? bits.join(', ') : 'set grades in Climber Setup'}.`));
       }
       d.appendChild(fs);
     }
@@ -337,7 +337,7 @@
     const pd = ui.mapMode === 'plan' && planner ? planner.mapData() : null;
     $('#planBanner').hidden = !(ui.mapMode === 'plan');
     if (ui.mapMode === 'plan') {
-      $('#planBanner').textContent = pd ? `${pd.plan.name} · ${pd.stops.length} walls · ${pd.stops.reduce((a, s) => a + s.count, 0)} routes` : 'No plan yet. Build one in the Plan tab.';
+      $('#planBanner').textContent = pd ? `${pd.plan.name} · ${pd.stops.length} walls · ${pd.stops.reduce((a, s) => a + s.count, 0)} routes` : 'No plan yet. Build one in the Planning tab.';
       const marks = [];
       if (pd) {
         for (const s of pd.stops) {
@@ -544,6 +544,8 @@
     if (t !== 'map' && playTimer) stopPlay();
     if (t === 'map') { initMap(); renderMap(); requestAnimationFrame(() => map.render()); }
     if (t === 'plan') renderPlan();
+    $('#clock').hidden = t === 'go'; // Go Time runs on real time, not the planning clock
+    if (t === 'go' && planner) planner.renderGo($('#goBody'));
     if (t === 'me') { renderProfiles(); noteStatus(); offlineStatus(); }
   }
   $$('.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));

@@ -200,10 +200,10 @@ textarea { width: 100%; margin-top: 10px; border: 1px solid var(--line); backgro
 
 /* ---- tabs ---- */
 .tabs {
-  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(4, 1fr);
+  position: fixed; left: 0; right: 0; bottom: 0; z-index: 30; display: grid; grid-template-columns: repeat(5, 1fr);
   background: var(--surface); border-top: 1px solid var(--line); padding-bottom: env(safe-area-inset-bottom);
 }
-.tabs button { border: 0; background: none; height: 58px; font-size: .9rem; color: var(--muted); font-weight: 600; }
+.tabs button { border: 0; background: none; height: 58px; padding: 0 2px; line-height: 1.15; font-size: .82rem; color: var(--muted); font-weight: 600; }
 .tabs button[aria-current="page"] { color: var(--ink); box-shadow: inset 0 3px 0 var(--accent); }
 
 @media (prefers-reduced-motion: reduce) { * { scroll-behavior: auto !important; transition: none !important; } }
@@ -367,3 +367,24 @@ a.button { color: inherit; text-decoration: none; }
 
 .p-num { grid-area: c; min-width: 2.6em; font-size: .85rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
 .p-route.done .p-num { color: var(--soft); }
+
+/* ---- Go Time ---- */
+.go-status { font-weight: 600; margin: 0 0 12px; }
+.go-sched { display: flex; align-items: baseline; gap: 10px; padding: 14px 16px; border-radius: var(--radius-l); background: var(--surface); border: 1px solid var(--line); margin-bottom: 12px; }
+.go-big { font-size: 3rem; font-weight: 800; font-variant-numeric: tabular-nums; line-height: 1; }
+.go-lbl { font-weight: 600; color: var(--muted); }
+.go-sched.ahead .go-big { color: var(--soft); } .go-sched.behind .go-big { color: var(--stiff); } .go-sched.even .go-big { color: var(--muted); }
+.go-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-bottom: 12px; }
+.go-tile, .go-next { display: flex; flex-direction: column; gap: 2px; padding: 10px 12px; border-radius: var(--radius-s); background: var(--surface); border: 1px solid var(--line); min-width: 0; }
+.go-next { margin-bottom: 12px; }
+.go-t { font-size: .8rem; color: var(--muted); font-weight: 600; }
+.go-v { font-size: 1.5rem; font-weight: 750; font-variant-numeric: tabular-nums; }
+.go-next .go-v { font-size: 1.15rem; }
+.go-sub { font-size: .8rem; color: var(--muted); }
+.go-ck { font-weight: 600; }
+.go-table td { position: relative; }
+.go-bar { display: block; height: 4px; background: var(--line); border-radius: 2px; margin-top: 3px; overflow: hidden; }
+.go-bar > span { display: block; height: 100%; background: var(--accent); }
+.go-table td.met .go-bar > span { background: var(--soft); }
+.go-table td.miss { color: var(--stiff); }
+.go-ach { font-weight: 600; } .go-ach.met { color: var(--soft); }

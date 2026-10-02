@@ -78,7 +78,7 @@
         </div>
       </fieldset>
       <fieldset>
-        <legend>For me (set in the You tab)</legend>
+        <legend>For me (set in Climber Setup)</legend>
         <div class="chips" data-key="fit">
           <button type="button" data-v="onsight">Onsight range</button><button type="button" data-v="push">Push</button><button type="button" data-v="project">Project</button><button type="button" data-v="noabove">Hide above project</button><button type="button" data-v="noreach">Hide reachy for me</button>
         </div>
@@ -132,6 +132,10 @@
     <div class="sheet" id="areaSheet" hidden></div>
   </section>
 
+  <section class="view" id="view-go" data-view="go" hidden>
+    <div class="prose" id="goBody"></div>
+  </section>
+
   <section class="view" id="view-plan" data-view="plan" hidden>
     <div class="prose" id="planBody"></div>
   </section>
@@ -172,10 +176,11 @@
 </main>
 
 <nav class="tabs" aria-label="Sections">
+  <button type="button" data-tab="go">Go Time!</button>
+  <button type="button" data-tab="map">Navigation</button>
+  <button type="button" data-tab="plan">Planning</button>
   <button type="button" data-tab="routes" aria-current="page">Routes</button>
-  <button type="button" data-tab="map">Map</button>
-  <button type="button" data-tab="plan">Plan</button>
-  <button type="button" data-tab="me">You</button>
+  <button type="button" data-tab="me">Climber Setup</button>
 </nav>
 
 <dialog class="detail" id="detail"></dialog>
