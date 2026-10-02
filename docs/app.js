@@ -486,7 +486,7 @@
   }
   function noteStatus(msg) { $('#noteStatus').textContent = msg || `${Object.keys(notes).length} routes have notes on this phone.`; }
   $('#btnExport').onclick = async () => {
-    const payload = { app: 'hhh-field-guide', version: 2, climber: myName() || 'unknown', exported: new Date().toISOString(), profiles, notes, plans: planner ? planner.exportState() : undefined, photos: window.WallPhotos ? await WallPhotos.exportAll() : undefined };
+    const payload = { app: 'hhh-field-guide', version: 2, climber: myName() || 'unknown', exported: new Date().toISOString(), profiles, notes, plans: planner ? planner.exportState() : undefined, photos: window.WallPhotos && $('#expPhotos').checked ? await WallPhotos.exportAll() : undefined };
     const name = `hhh-notes-${(myName() || 'climber').toLowerCase().replace(/\W+/g, '-')}-${new Date().toISOString().slice(0, 10)}.json`;
     const blob = new Blob([JSON.stringify(payload, null, 1)], { type: 'application/json' });
     const file = new File([blob], name, { type: 'application/json' });
@@ -552,7 +552,7 @@
     if (t === 'plan') renderPlan();
     $('#clock').hidden = t === 'go'; // Go Time runs on real time, not the planning clock
     if (t === 'go' && planner) planner.renderGo($('#goBody'));
-    if (t === 'me') { renderProfiles(); noteStatus(); offlineStatus(); if (window.WallPhotos) WallPhotos.manage($('#photoList')); }
+    if (t === 'me') { renderProfiles(); noteStatus(); offlineStatus(); if (window.WallPhotos) { WallPhotos.manage($('#photoList')); WallPhotos.usage().then(u => { $('#expPhotosInfo').textContent = u.n ? `(${u.n}, about ${Math.max(1, Math.round(u.bytes * 1.37 / 1048576))} MB)` : '(none yet)'; }); } }
   }
   $$('.tabs button').forEach(b => b.onclick = () => showTab(b.dataset.tab));
 

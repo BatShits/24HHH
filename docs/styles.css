@@ -410,6 +410,7 @@ a.button { color: inherit; text-decoration: none; }
 .pd-scroll { overflow: auto; flex: 0 0 auto; max-height: 52vh; background: #000; touch-action: pan-x pan-y; }
 .pd-box, .pv-box { position: relative; width: 100%; line-height: 0; margin: 0 auto; }
 .pd-box img, .pv-box img { width: 100%; height: auto; display: block; user-select: none; -webkit-user-select: none; }
+.pv-box img { height: 100%; object-fit: contain; }
 .pd-zoom { display: flex; gap: 6px; align-items: center; padding: 6px 16px; flex-wrap: wrap; }
 .pd-zoom .chip { border: 1px solid var(--line); background: var(--surface); color: var(--ink); border-radius: 999px; padding: 4px 10px; }
 .pd-zoom .chip[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
@@ -462,3 +463,5 @@ a.button { color: inherit; text-decoration: none; }
 .ph-item img { width: 64px; height: 48px; object-fit: cover; border-radius: 4px; background: #000; cursor: pointer; }
 .ph-tx { display: flex; flex-direction: column; min-width: 0; }
 .ph-item .btn, #photoList .btnrow .btn { border: 1px solid var(--line); background: var(--surface); border-radius: var(--radius-s); padding: 8px 12px; color: var(--stiff); }
+.exp-photos { display: flex; gap: 8px; align-items: center; margin: 8px 0 0; }
+.exp-photos input { width: 22px; height: 22px; }

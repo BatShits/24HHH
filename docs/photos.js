@@ -54,6 +54,19 @@
     if (!blob || blob.size < 1000) return { blob: file, w: W, h: H }; // keep the original if shrinking failed
     return { blob, w: cv.width, h: cv.height };
   }
+  // small copy for lists and rows: decoding dozens of full-size photos at once can crash a phone
+  async function makeThumb(blob, px = 480) {
+    let src; try { src = await createImageBitmap(blob); } catch (e) { src = await loadImg(blob); }
+    const W = src.width || src.naturalWidth, H = src.height || src.naturalHeight, s = Math.min(1, px / Math.max(W, H));
+    const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(W * s)); cv.height = Math.max(1, Math.round(H * s));
+    cv.getContext('2d').drawImage(src, 0, 0, cv.width, cv.height); if (src.close) src.close();
+    return await new Promise(r => { try { cv.toBlob(r, 'image/jpeg', 0.75); } catch (e) { r(null); } });
+  }
+  async function ensureThumb(rec) {
+    if (rec.thumb) return rec;
+    try { rec.thumb = await makeThumb(rec.blob); if (rec.thumb) await put(rec); } catch (e) { /* fall back to the full photo */ }
+    return rec;
+  }
   const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
   function toast(msg) { let t = document.getElementById('photoToast'); if (!t) { t = el('div', 'photo-toast'); t.id = 'photoToast'; document.body.appendChild(t); } t.textContent = msg; t.hidden = !msg; }
   const routesAt = area => C.ROUTES().filter(r => r.area === area).sort((a, b) => (a.n ?? 1e9) - (b.n ?? 1e9) || (a.walk ?? 1e9) - (b.walk ?? 1e9));
@@ -143,7 +156,7 @@
     const act = el('div', 'btnrow pd-act');
     const rm = el('button', 'btn', 'Remove mark'); rm.type = 'button'; rm.onclick = () => { rec.marks = rec.marks.filter(m => m.rid !== cur); renderList(); redraw(); };
     const save = el('button', 'btn primary', 'Save'); save.type = 'button';
-    save.onclick = async () => { rec.area = sel.value; delete rec.near; await put(rec); d.close(); C.onPhotos(rec.area); };
+    save.onclick = async () => { rec.area = sel.value; delete rec.near; if (!rec.thumb) { try { rec.thumb = await makeThumb(rec.blob); } catch (e) { /* none */ } } await put(rec); persist(); d.close(); C.onPhotos(rec.area); };
     const delB = el('button', 'btn danger', isNew ? 'Discard' : 'Delete photo'); delB.type = 'button';
     delB.onclick = async () => { if (!isNew) await del(rec.id); d.close(); C.onPhotos(rec.area); };
     act.append(save, rm, delB); d.appendChild(act);
@@ -218,8 +231,12 @@
   });
 
   // ---------- viewing ----------
+  const thumbUrls = new Map();
+  const thumbUrlOf = p => { if (!p.thumb) return urlOf(p); let u = thumbUrls.get(p.id); if (!u || u.blob !== p.thumb) { if (u) URL.revokeObjectURL(u.url); u = { blob: p.thumb, url: URL.createObjectURL(p.thumb) }; thumbUrls.set(p.id, u); } return u.url; };
   function thumb(rec, opts = {}) {
-    const box = el('div', 'pv-box'); const img = el('img'); img.src = urlOf(rec); img.alt = 'Photo of ' + rec.area; img.loading = 'lazy';
+    const box = el('div', 'pv-box'); box.style.aspectRatio = `${rec.w || 3} / ${rec.h || 2}`;
+    const img = el('img'); img.alt = 'Photo of ' + rec.area; img.loading = 'lazy'; img.decoding = 'async';
+    if (!opts.lazy) img.src = opts.full ? urlOf(rec) : thumbUrlOf(rec);
     box.appendChild(img); drawMarks(box, rec, { focus: opts.focus, sel: opts.focus, onMark: (b, m, r) => { b.onclick = e => { e.stopPropagation(); C.openDetail(r.id); }; } });
     return box;
   }
@@ -230,7 +247,7 @@
     const { d, h } = fullDialog(list[start].area);
     const car = el('div', 'pv-car'); d.appendChild(car);
     const slides = list.map(rec => {
-      const sl = el('div', 'pv-slide'); const box = thumb(rec, { focus });
+      const sl = el('div', 'pv-slide'); const box = thumb(rec, { focus, lazy: true });
       box.querySelectorAll('.pm').forEach(b => { const rid = b.dataset.rid; b.onclick = e => { e.stopPropagation(); d.close(); C.openDetail(rid); }; });
       sl.appendChild(box); car.appendChild(sl);
       return { rec, sl, box, z: 1, base: 0 };
@@ -274,6 +291,8 @@
       status();
     }
     function status() {
+      // only the photos around the current one are decoded at full size
+      slides.forEach((s, i) => { const img = s.box.querySelector('img'); if (Math.abs(i - cur) <= 1) { const u = urlOf(s.rec); if (img.getAttribute('src') !== u) img.src = u; } else if (img.getAttribute('src')) img.removeAttribute('src'); });
       const r = slides[cur].rec;
       h.textContent = r.area;
       info.textContent = (list.length > 1 ? `${cur + 1} of ${list.length} · ` : '') + `${r.marks.length} marked` + (slides[cur].z > 1.01 ? ` · ${slides[cur].z.toFixed(1)}×` : '') + ' · tap a mark for its route · orange = in plan, green = done';
@@ -308,7 +327,7 @@
     const head = el('div', 'photos-head'); head.appendChild(el('h3', null, 'Photos'));
     const add = el('button', 'btn', '📷 Add photo'); add.type = 'button'; add.onclick = () => capture(area); head.appendChild(add);
     wrap.appendChild(head);
-    let ps = []; try { ps = await byArea(area); } catch (e) { wrap.appendChild(el('p', 'hint small', 'Photos aren\'t available in this browser.')); return wrap; }
+    let ps = []; try { ps = await Promise.all((await byArea(area)).map(ensureThumb)); } catch (e) { wrap.appendChild(el('p', 'hint small', 'Photos aren\'t available in this browser.')); return wrap; }
     if (!ps.length) wrap.appendChild(el('p', 'hint small', 'No photos yet. Take one from the base of the wall and mark where each climb starts.'));
     const row = el('div', 'photo-row');
     ps.forEach((p, i) => { const t = thumb(p); t.classList.add('mini'); t.style.width = `calc(var(--thumb-h) * ${arOf(p).toFixed(4)})`; t.onclick = () => view(ps, i); t.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); view(ps, i); }; }); row.appendChild(t); });
@@ -317,7 +336,7 @@
   }
   // the photo(s) showing one route, for the route detail
   async function forRoute(rid) {
-    let ps = []; try { ps = (await all()).filter(p => p.marks.some(m => m.rid === rid)); } catch (e) { return null; }
+    let ps = []; try { ps = await Promise.all((await all()).filter(p => p.marks.some(m => m.rid === rid)).map(ensureThumb)); } catch (e) { return null; }
     if (!ps.length) return null;
     const wrap = el('div', 'photos'); wrap.appendChild(el('h3', null, 'Where it starts'));
     const row = el('div', 'photo-row'); ps.forEach((p, i) => { const t = thumb(p, { focus: rid }); t.classList.add('mini'); t.style.width = `calc(var(--thumb-h) * ${arOf(p).toFixed(4)})`; t.onclick = () => view(ps, i, rid); t.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); view(ps, i, rid); }; }); row.appendChild(t); }); wrap.appendChild(row);
@@ -344,13 +363,15 @@
   let manageGen = 0;
   async function manage(box) {
     const gen = ++manageGen;
-    let ps = []; try { ps = (await all()).sort((a, b) => a.taken < b.taken ? 1 : -1); } catch (e) { box.textContent = ''; box.appendChild(el('p', 'hint small', 'Photos aren\'t available in this browser.')); return; }
+    let ps = []; try { ps = (await all()).sort((a, b) => a.taken < b.taken ? 1 : -1); for (const p of ps) await ensureThumb(p); } catch (e) { box.textContent = ''; box.appendChild(el('p', 'hint small', 'Photos aren\'t available in this browser.')); return; }
     if (gen !== manageGen) return; // a newer refresh is on its way
     box.textContent = '';
     if (!ps.length) { box.appendChild(el('p', 'hint small', 'No wall photos on this phone.')); return; }
+    const u = await usage(); const mb = x => (x / 1048576).toFixed(x < 10485760 ? 1 : 0) + ' MB';
+    box.appendChild(el('p', 'hint small', `${u.n} photos, ${mb(u.bytes)}` + (u.quota ? ` of about ${u.quota > 2 ** 30 ? (u.quota / 2 ** 30).toFixed(1) + ' GB' : mb(u.quota)} this app may use.` : '.')));
     const ul = el('ul', 'ph-list');
     ps.forEach((p, i) => {
-      const li = el('li', 'ph-item'); const im = el('img'); im.src = urlOf(p); im.alt = ''; im.onclick = () => view(ps, i);
+      const li = el('li', 'ph-item'); const im = el('img'); im.loading = 'lazy'; im.src = thumbUrlOf(p); im.alt = ''; im.onclick = () => view(ps, i);
       const tx = el('div', 'ph-tx'); tx.append(el('strong', null, p.area || 'No wall'), el('span', 'hint small', `${(t => t.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + Sun.fmt(t.getHours() + t.getMinutes() / 60))(new Date(p.taken))} · ${p.marks.length} marked`));
       const x = el('button', 'btn danger', 'Delete'); x.type = 'button'; let armed = 0;
       x.onclick = async () => { if (Date.now() - armed > 4000) { armed = Date.now(); x.textContent = 'Sure?'; return; } await del(p.id); C.onPhotos(p.area); manage(box); };
@@ -362,5 +383,14 @@
     row.appendChild(all_); box.appendChild(row);
   }
 
-  window.WallPhotos = { manage, init(ctx) { C = ctx; }, capture, section, forRoute, exportAll, importAll, count: async () => { try { return (await all()).length; } catch (e) { return 0; } } };
+  async function usage() {
+    let n = 0, bytes = 0; try { for (const p of await all()) { n++; bytes += (p.blob && p.blob.size || 0) + (p.thumb && p.thumb.size || 0); } } catch (e) { /* none */ }
+    let quota = null; try { if (navigator.storage && navigator.storage.estimate) quota = (await navigator.storage.estimate()).quota; } catch (e) { /* none */ }
+    let persisted = null; try { if (navigator.storage && navigator.storage.persisted) persisted = await navigator.storage.persisted(); } catch (e) { /* none */ }
+    return { n, bytes, quota, persisted };
+  }
+  // ask the browser not to clear our storage when the phone is low on space
+  const persist = () => { try { if (navigator.storage && navigator.storage.persist) navigator.storage.persist(); } catch (e) { /* none */ } };
+
+  window.WallPhotos = { manage, usage, persist, init(ctx) { C = ctx; }, capture, section, forRoute, exportAll, importAll, count: async () => { try { return (await all()).length; } catch (e) { return 0; } } };
 })();

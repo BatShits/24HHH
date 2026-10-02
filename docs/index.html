@@ -149,6 +149,7 @@
 
       <h2>Your notes</h2>
       <p class="hint">Notes are saved on this phone only. Export them after each trip and send the file to Claude so they get merged into the master data. The export includes both climber profiles.</p>
+      <label class="check exp-photos"><input type="checkbox" id="expPhotos"> <span>Include wall photos <span class="hint small" id="expPhotosInfo"></span></span></label>
       <div class="btnrow">
         <button type="button" class="primary" id="btnExport">Export notes</button>
         <label class="button">Import notes<input id="fileImport" type="file" accept="application/json,.json" hidden></label>
@@ -156,7 +157,7 @@
       <p class="status" id="noteStatus"></p>
 
       <h2>Wall photos</h2>
-      <p class="hint">Photos stay on this phone. Tap one to view it. Export notes includes them for your partner.</p>
+      <p class="hint">Photos stay on this phone. Tap one to view it. To give them to your partner, tick “Include wall photos” before Export notes.</p>
       <div id="photoList"></div>
 
       <h2>Offline</h2>
