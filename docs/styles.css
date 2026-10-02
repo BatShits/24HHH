@@ -255,7 +255,7 @@ textarea { width: 100%; margin-top: 10px; border: 1px solid var(--line); backgro
 .p-route { display: grid; grid-template-columns: auto 1fr; gap: 0 10px; align-items: start; border-bottom: 1px solid var(--line); padding: 6px 0; }
 .p-route input[type=checkbox] { width: 24px; height: 24px; margin: 10px 0 0 2px; accent-color: var(--soft); }
 .p-route.done .p-name { text-decoration: line-through; color: var(--muted); }
-.p-main { display: grid; grid-template-columns: 4.6rem 3.6rem 1fr; grid-template-areas: "t g n" "x x x"; gap: 2px 8px; text-align: left; border: 0; background: none; padding: 6px 0; width: 100%; align-items: center; }
+.p-main { display: grid; grid-template-columns: auto 4.6rem 3.6rem 1fr; grid-template-areas: "c t g n" ". x x x"; gap: 2px 6px; text-align: left; border: 0; background: none; padding: 6px 0; width: 100%; align-items: center; }
 .p-main .p-time { grid-area: t; } .p-main .grade { grid-area: g; font-size: .95rem; } .p-main .p-name { grid-area: n; font-weight: 600; }
 .p-tags { grid-area: x; display: flex; flex-wrap: wrap; gap: 6px; align-items: center; padding-left: calc(4.6rem + 8px); font-size: .8rem; }
 .p-tags .pts { min-width: 0; text-align: left; }
@@ -364,3 +364,6 @@ a.button { color: inherit; text-decoration: none; }
 .p-stop .p-time { grid-area: meta; font-weight: 600; font-size: .85rem; color: var(--muted); }
 .p-stop .p-count { grid-area: meta; justify-self: end; }
 .p-stop .p-add { grid-area: add; margin-left: 0; } .p-stop .drag { grid-area: drag; margin-left: 0; }
+
+.p-num { grid-area: c; min-width: 2.6em; font-size: .85rem; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--muted); }
+.p-route.done .p-num { color: var(--soft); }

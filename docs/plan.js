@@ -1004,7 +1004,7 @@
       // where the goals are all met: everything after that line is optional
       const gtL = goalTimes(plan, tl), gsL = goalsOf(plan);
       const doneAt = gsL.length && gsL.every(g => gtL[g] != null) ? Math.max(...gsL.map(g => gtL[g])) : null;
-      let lineDrawn = doneAt == null;
+      let lineDrawn = doneAt == null, climbN = 0;
       for (const row of tl.rows) {
         if (!lineDrawn && row.t0 >= doneAt - 1e-6 && !(row.kind === 'route' && Math.abs(row.t1 - doneAt) < 1e-6)) {
           lineDrawn = true; const end = plan.start + FORMATS[plan.format].dur;
@@ -1033,7 +1033,7 @@
         const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!row.done; cb.setAttribute('aria-label', 'Done: ' + r.name);
         cb.onchange = () => { const it = plan.items[row.i]; it.done = cb.checked ? new Date().toISOString() : undefined; save(); render(); ctx.onPlanChange(); };
         const main = el('button', 'p-main'); main.type = 'button';
-        main.append(el('span', 'p-time', Sun.fmt(dh(plan, row.t0).hour)), el('span', 'grade ' + (ctx.feelOf(r) ? 'feel-' + ctx.feelOf(r) : ''), r.g), el('span', 'p-name', r.name));
+        main.append(el('span', 'p-num', '#' + (++climbN)), el('span', 'p-time', Sun.fmt(dh(plan, row.t0).hour)), el('span', 'grade ' + (ctx.feelOf(r) ? 'feel-' + ctx.feelOf(r) : ''), r.g), el('span', 'p-name', r.name));
         const tags = el('span', 'p-tags');
         tags.append(el('span', 'pts', r.pts));
         tags.appendChild(el('span', 'who', whoLabel(row.who)));
