@@ -75,3 +75,10 @@ ver = datetime.date.today().isoformat() + '-' + h.hexdigest()[:7]
 open(os.path.join(ROOT,'docs','version.js'),'w').write(f"window.HHH_VERSION='{ver}';\n")
 open(os.path.join(ROOT,'docs','sw.js'),'w').write(open(os.path.join(ROOT,'docs','sw.template.js')).read().replace('__VERSION__', ver))
 print('version', ver)
+
+# catch syntax errors before they ship (a broken sw.js silently stops phones from updating)
+import shutil, subprocess
+if shutil.which('node'):
+    for f in ['sw.js', 'app.js', 'plan.js', 'share.js', 'map.js', 'sun.js']:
+        r = subprocess.run(['node', '--check', os.path.join(ROOT, 'docs', f)], capture_output=True, text=True)
+        if r.returncode: raise SystemExit(f'Syntax error in docs/{f}:\n{r.stderr}')

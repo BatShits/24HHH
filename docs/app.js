@@ -590,8 +590,11 @@
       TRAILS = await fetch('data/trails.json').then(x => x.json()).catch(() => null);
     } catch (e) { $('#count').textContent = 'Route data didn\'t load. Open the app once with signal so it can save itself.'; return; }
     planner = window.Planner({ $, el, store, GU, profiles, ROUTES: () => ROUTES, AREAS: () => AREAS, TRAILS: () => TRAILS, ui, feelOf, openDetail, showTab, saveUi: save,
-      onPlanChange: () => renderMap(), renderReference, onClock: () => updateClock() });
+      onPlanChange: () => renderMap(), onProfiles: () => { saveProfiles(); renderProfiles(); renderList(); }, renderReference, onClock: () => updateClock() });
     renderList(); showTab(ui.tab);
+    // a shared plan link: #p=<code>
+    const takeHash = () => { if (/^#p=/.test(location.hash)) { const h = location.hash; history.replaceState(null, '', location.pathname + location.search); planner.importShared(h); } };
+    takeHash(); window.addEventListener('hashchange', takeHash);
     $('#buildInfo').textContent = 'Version ' + (window.HHH_VERSION || 'dev') + '.';
     if ('serviceWorker' in navigator) {
       // Pick up new versions: check on launch and whenever the app comes back to the foreground, then reload once the new version takes over.

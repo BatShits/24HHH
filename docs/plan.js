@@ -772,13 +772,76 @@
       sel.onchange = () => { state.active = sel.value; save(); render(); ctx.onPlanChange(); };
       const bNew = el('button', 'btn', 'New plan'); bNew.type = 'button'; bNew.onclick = () => { newPlan(plan ? plan.format : '24'); render(); ctx.onPlanChange(); };
       top.append(sel, bNew);
+      const bScan = el('button', 'btn', 'Scan a plan'); bScan.type = 'button'; bScan.onclick = scanPlan; top.appendChild(bScan);
+      if (plan && plan.items.length) { const bSh = el('button', 'btn', 'Share'); bSh.type = 'button'; bSh.onclick = () => sharePlan(plan); top.appendChild(bSh); }
       if (plan) { const bDel = el('button', 'btn ghost', 'Delete'); bDel.type = 'button'; bDel.onclick = () => { state.plans = state.plans.filter(p => p.id !== plan.id); state.active = state.plans[0]?.id || null; save(); render(); ctx.onPlanChange(); }; top.appendChild(bDel); }
-      if (!state.plans.length) { body.appendChild(el('h2', null, 'Plan')); body.appendChild(el('p', 'hint', 'Set your goals and the planner recommends a route-by-route plan for both of you. You can then edit it, check routes off on the day and see whether you are ahead or behind.')); const b = el('button', 'btn primary', 'Start a plan'); b.type = 'button'; b.onclick = () => { newPlan('24'); render(); }; body.appendChild(b); renderReference(body); return; }
+      if (!state.plans.length) { body.appendChild(el('h2', null, 'Plan')); body.appendChild(el('p', 'hint', 'Set your goals and the planner recommends a route-by-route plan for both of you. You can then edit it, check routes off on the day and see whether you are ahead or behind.')); const b = el('button', 'btn primary', 'Start a plan'); b.type = 'button'; b.onclick = () => { newPlan('24'); render(); }; const bs = el('button', 'btn', 'Scan a shared plan'); bs.type = 'button'; bs.onclick = scanPlan; const br = el('div', 'btnrow'); br.append(b, bs); body.appendChild(br); renderReference(body); return; }
       body.appendChild(top);
       renderSetup(body, plan);
       if (plan.items.length) renderSummary(body, plan);
       if (plan.items.length || plan.manual) renderItems(body, plan);
       renderReference(body);
+    }
+
+    // ---------- sharing a plan by QR code ----------
+    function popup(title) {
+      const d = document.createElement('dialog'); d.className = 'detail popup';
+      const head = el('header', 'd-head'), t = el('div', 'd-title'); t.appendChild(el('h2', null, title)); head.appendChild(t);
+      const x = el('button', 'd-close', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Close'); x.onclick = () => d.close(); head.appendChild(x);
+      const body = el('div', 'popup-body'); d.append(head, body); document.body.appendChild(d);
+      d.addEventListener('close', () => d.remove()); d.showModal(); return { d, body };
+    }
+    async function sharePlan(plan) {
+      const { body } = popup('Share this plan');
+      const code = await window.PlanShare.encode(plan, { me: profiles.me, partner: profiles.partner }, profiles.me.name || '');
+      const link = window.PlanShare.linkFor(code);
+      const q = el('div', 'qr'); try { q.innerHTML = window.PlanShare.qrSvg(link); } catch (e) { q.textContent = 'This plan is too big for one QR code. Use Send link instead.'; }
+      body.append(q, el('p', 'hint', `On the other phone: open this app, go to Planning, tap “Scan a plan” and point it here. It brings over the plan, any climbs already ticked, and both climbers' grades.`));
+      const row = el('div', 'btnrow');
+      const bSend = el('button', 'btn primary', 'Send link'); bSend.type = 'button';
+      const st = el('p', 'hint small');
+      bSend.onclick = async () => {
+        try { if (navigator.share) { await navigator.share({ title: plan.name, text: `Horseshoe Hell plan: ${plan.name}`, url: link }); return; } } catch (e) { if (e.name === 'AbortError') return; }
+        try { await navigator.clipboard.writeText(link); st.textContent = 'Link copied.'; } catch (e) { st.textContent = 'Couldn\'t copy the link on this phone.'; }
+      };
+      row.appendChild(bSend); body.append(row, st,
+        el('p', 'hint small', 'On iPhone, a link opens in Safari, not the home-screen app. If they use the home-screen app, have them scan from inside it, or copy the link and paste it under “Scan a plan”.'));
+    }
+    function scanPlan() {
+      const { d, body } = popup('Scan a plan');
+      const v = el('video', 'scan-video'); const st = el('p', 'hint'); st.textContent = 'Starting the camera…';
+      const ta = el('textarea', 'paste'); ta.rows = 2; ta.placeholder = 'Or paste a shared link here';
+      const go = el('button', 'btn', 'Open pasted link'); go.type = 'button'; go.onclick = () => { d.close(); importShared(ta.value); };
+      body.append(v, st, ta, go);
+      window.PlanShare.scan(d, v, st).then(txt => { if (txt) { d.close(); importShared(txt); } });
+    }
+    async function importShared(text) {
+      let got; try { got = await window.PlanShare.decode(text); } catch (e) { const { body } = popup('Couldn\'t open that'); body.appendChild(el('p', null, e.message && !/^(no code|not a plan)$/.test(e.message) ? e.message : 'That isn\'t a plan code from this app.')); return; }
+      const { plan: inc, profiles: pr, from } = got;
+      const { d, body } = popup('Shared plan');
+      const nm = k => (pr && pr[k] && pr[k].name) || (k === 'me' ? 'Climber 1' : 'Climber 2');
+      const exists = state.plans.some(p => p.id === inc.id);
+      body.appendChild(el('p', null, `“${inc.name}”${from ? ' from ' + from : ''}: ${FORMATS[inc.format] ? FORMATS[inc.format].label : ''}, ${inc.items.filter(x => x.rid).length} routes${inc.items.some(x => x.done) ? ', ' + inc.items.filter(x => x.done).length + ' ticked' : ''}.` + (exists ? ' This replaces your copy of it.' : '')));
+      const cbL = el('label', 'check'); const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!pr && !(profiles.me.onsight && profiles.partner.onsight);
+      cbL.append(cb, el('span', null, 'Also fill in Climber Setup with both climbers\' grades'));
+      if (pr) body.appendChild(cbL);
+      body.appendChild(el('p', 'plabel', 'Which one are you?'));
+      const row = el('div', 'btnrow');
+      for (const k of WHO) {
+        const b = el('button', 'btn primary', nm(k)); b.type = 'button';
+        b.onclick = () => {
+          const swap = k === 'partner', sw = w => w === 'me' ? 'partner' : 'me';
+          const plan = JSON.parse(JSON.stringify(inc));
+          if (swap) { for (const it of plan.items) if (it.who) it.who = it.who.map(sw); if (plan.divs) plan.divs = { me: plan.divs.partner, partner: plan.divs.me }; }
+          fixStart(plan);
+          const i = state.plans.findIndex(p => p.id === plan.id); if (i >= 0) state.plans[i] = plan; else state.plans.push(plan);
+          state.active = plan.id; save();
+          if (pr && cb.checked) { const a = swap ? pr.partner : pr.me, bb = swap ? pr.me : pr.partner; if (a) Object.assign(profiles.me, a); if (bb) Object.assign(profiles.partner, bb); ctx.onProfiles && ctx.onProfiles(); }
+          d.close(); ctx.showTab('plan'); render(); ctx.onPlanChange();
+        };
+        row.appendChild(b);
+      }
+      body.appendChild(row);
     }
 
     function chipRow(opts, val, onPick, single = true) {
@@ -1284,6 +1347,6 @@
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { renderGo, _live: liveStats, _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _goalTimes: (p) => goalTimes(p), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
+    return { renderGo, importShared, _live: liveStats, _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _goalTimes: (p) => goalTimes(p), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
   };
 })();

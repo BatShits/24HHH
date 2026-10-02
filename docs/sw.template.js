@@ -2,11 +2,12 @@
 const VERSION = '__VERSION__';
 const APP_CACHE = 'hhh-app-' + VERSION;
 const TILE_CACHE = 'hhh-tiles';
-const SHELL = ['./', 'index.html', 'styles.css', 'sun.js', 'map.js', 'plan.js', 'app.js', 'version.js', 'manifest.webmanifest',
+const SHELL = ['./', 'index.html', 'styles.css', 'sun.js', 'map.js', 'plan.js', 'app.js', 'share.js', 'vendor/qrcode.js', 'vendor/jsQR.js', 'version.js', 'manifest.webmanifest',
   'data/routes.json', 'data/areas.json', 'data/trails.json', 'icons/icon-192.png', 'icons/icon-512.png', 'icons/apple-touch-icon.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(APP_CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))  // skip the browser's HTTP cache so an update never caches stale files).then(() => self.skipWaiting()));
+  // cache: 'reload' skips the browser's HTTP cache so an update never caches stale files
+  e.waitUntil(caches.open(APP_CACHE).then(c => c.addAll(SHELL.map(u => new Request(u, { cache: 'reload' })))).then(() => self.skipWaiting()));
 });
 self.addEventListener('activate', e => {
   e.waitUntil(caches.keys().then(keys => Promise.all(keys.filter(k => k.startsWith('hhh-app-') && k !== APP_CACHE).map(k => caches.delete(k))))
