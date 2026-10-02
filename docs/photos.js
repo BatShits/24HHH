@@ -155,22 +155,48 @@
   }
 
   // ---------- capture ----------
-  // a real (not display:none) file input: some phones won't deliver the picture to a hidden one
-  const fileIn = document.createElement('input'); fileIn.type = 'file'; fileIn.accept = 'image/*'; fileIn.setAttribute('capture', 'environment');
+  // Taking the picture happens inside the app (live camera + shutter). Handing off to the phone's camera
+  // app (<input capture>) loses the picture in home-screen apps, so the file picker is only for the photo library.
+  const fileIn = document.createElement('input'); fileIn.type = 'file'; fileIn.accept = 'image/*';
   fileIn.className = 'photo-input'; fileIn.tabIndex = -1; fileIn.setAttribute('aria-hidden', 'true');
   document.body.appendChild(fileIn);
   let pending = null;
   function capture(area) {
-    // open the camera straight from the tap (phones require it), look up where we are meanwhile
-    pending = { area, where: area ? null : here() };
-    fileIn.value = ''; fileIn.click();
+    const job = { area, where: area ? null : here() };
+    const { d } = fullDialog(area ? 'Photo of ' + area : 'Wall photo');
+    const v = el('video', 'cam-video'); v.setAttribute('playsinline', ''); v.muted = true; v.autoplay = true;
+    const st = el('p', 'hint small cam-st', 'Starting the camera…');
+    const row = el('div', 'cam-row');
+    const lib = el('button', 'btn', 'Photo library'); lib.type = 'button';
+    const shut = el('button', 'cam-shutter'); shut.type = 'button'; shut.setAttribute('aria-label', 'Take the picture'); shut.disabled = true;
+    const spacer = el('span', 'cam-spacer');
+    row.append(lib, shut, spacer); d.append(v, st, row);
+    let stream = null;
+    const stop = () => { if (stream) stream.getTracks().forEach(t => t.stop()); stream = null; v.srcObject = null; };
+    d.addEventListener('close', stop);
+    lib.onclick = () => { stop(); d.close(); pending = job; fileIn.value = ''; fileIn.click(); };
+    (async () => {
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) { st.textContent = 'This browser can\'t use the camera here. Take the photo with the camera app, then tap Photo library.'; return; }
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: 'environment' }, width: { ideal: 3840 }, height: { ideal: 2160 } } });
+        if (!d.open) return stop();
+        v.srcObject = stream; await v.play().catch(() => {});
+        shut.disabled = false; st.textContent = 'Frame the base of the wall, then tap the shutter.';
+      } catch (e) { st.textContent = 'Camera not available (' + (e.name || 'error') + '). Allow camera access for this app, or take the photo with the camera app and tap Photo library.'; }
+    })();
+    shut.onclick = async () => {
+      if (!v.videoWidth) return;
+      const W = v.videoWidth, H = v.videoHeight, sc = Math.min(1, MAXPX / Math.max(W, H));
+      const cv = document.createElement('canvas'); cv.width = Math.round(W * sc); cv.height = Math.round(H * sc);
+      cv.getContext('2d').drawImage(v, 0, 0, cv.width, cv.height);
+      stop(); d.close();
+      let blob = await new Promise(r => { try { cv.toBlob(r, 'image/jpeg', 0.85); } catch (e) { r(null); } });
+      if (!blob) blob = await (await fetch(cv.toDataURL('image/jpeg', 0.85))).blob();
+      finish(job, { blob, w: cv.width, h: cv.height });
+    };
   }
-  async function picked() {
-    const f = fileIn.files && fileIn.files[0]; if (!f) return;
-    const job = pending || { area: null, where: here() }; pending = null;
-    toast('Loading photo…');
+  async function finish(job, img) {
     try {
-      const { blob, w, h } = await shrink(f);
       let area = job.area, nearTxt = '';
       if (!area) {
         toast('Finding the nearest wall…');
@@ -179,13 +205,17 @@
         else nearTxt = pos ? 'GPS: not near a wall. Pick it above.' : 'No GPS fix. Pick the wall above.';
       }
       toast('');
-      await edit({ id: 'ph' + Date.now().toString(36), area, taken: new Date().toISOString(), w, h, blob, marks: [], near: nearTxt }, true);
-    } catch (e) {
-      toast(''); const { d } = fullDialog('Photo didn\'t load'); d.appendChild(el('p', 'pd-msg', (e && e.message) || String(e)));
-    }
-    fileIn.value = '';
+      await edit({ id: 'ph' + Date.now().toString(36), area, taken: new Date().toISOString(), w: img.w, h: img.h, blob: img.blob, marks: [], near: nearTxt }, true);
+    } catch (e) { fail(e); }
   }
-  fileIn.addEventListener('change', picked);
+  const fail = e => { toast(''); const { d } = fullDialog('Photo didn\'t load'); d.appendChild(el('p', 'pd-msg', (e && e.message) || String(e))); };
+  fileIn.addEventListener('change', async () => {
+    const f = fileIn.files && fileIn.files[0]; if (!f) return;
+    const job = pending || { area: null, where: here() }; pending = null;
+    toast('Loading photo…');
+    try { await finish(job, await shrink(f)); } catch (e) { fail(e); }
+    fileIn.value = '';
+  });
 
   // ---------- viewing ----------
   function thumb(rec, opts = {}) {
