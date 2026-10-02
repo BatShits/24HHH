@@ -136,9 +136,8 @@
       const hrs = Math.max(0, abs - plan.start);
       return (1 + (FATIGUE[plan.format] ?? 0.03) * hrs) * (lt && lt !== 'day' ? DARK_SLOW : 1);
     }
-    // Lines at the easy end routes: everyone going for Full Horseshoe wants the 5.8 bookends
-    // (Zack waited over 1 h 20 min at Hickadelic Jazzgrass on the 2026 12-hour). plan.lineMin overrides the default.
-    const LINE_DEFAULT = { 12: 60, 24: 25 };
+    // Optional expected line at the easy end routes (plan.lineMin). Off by default: the goal buffer covers waits like this.
+    const LINE_DEFAULT = { 12: 0, 24: 0 };
     const lineMin = plan => plan.lineMin ?? LINE_DEFAULT[plan.format] ?? 30;
     function queueMin(plan, r) {
       if (!r.sp) return 0;
@@ -978,7 +977,7 @@
       { const li = el('input'); li.type = 'number'; li.inputMode = 'numeric'; li.min = 0; li.max = 180; li.value = lineMin(plan);
         li.onchange = () => { const v = Math.max(0, Math.min(180, Math.round(+li.value || 0))); plan.lineMin = v === LINE_DEFAULT[plan.format] ? undefined : v; save(); render(); };
         const lr = el('div', 'target-row'); lr.append(li, el('span', null, 'minutes'));
-        d.appendChild(field('Line at the 5.8 end routes', lr, 'Expected wait at Hickadelic Jazzgrass and the Montezuma routes (Zack waited over 1 h 20 min at Hickadelic on the 2026 12-hour). Harder end routes get a sixth of this. The planner weighs it when picking end routes.')); }
+        d.appendChild(field('Line at the 5.8 end routes', lr, 'Optional. Adds a wait at Hickadelic Jazzgrass and the Montezuma routes (harder end routes get a sixth of it). Leave at 0 to rely on the goal buffer instead.')); }
       if (plan.format === '24') {
         const lab2 = el('label', 'checkline'); const cb2 = el('input'); cb2.type = 'checkbox'; cb2.checked = !!plan.earlyHard;
         cb2.onchange = () => { plan.earlyHard = cb2.checked; save(); render(); };
