@@ -26,7 +26,7 @@
       checkins: [] },
   };
   const INTENSITY = {
-    conservative: { label: "Don't Hurt Me", ceil: [0, -1, -2, -1], hard: 1, walk: 50, walkPrep: 2, breaks: 15, walkName: 'a slow stroll (about 3 km/h)' },
+    conservative: { label: "Don't Hurt Me", ceil: [0, -1, -2, -1], hard: 1, walk: 70, walkPrep: 2, breaks: 10, walkName: 'an easy walk (about 4.2 km/h)' },
     standard: { label: 'Bring it On!', ceil: [1, 0, -1, 0], hard: 2, walk: 90, walkPrep: 1, breaks: 5, walkName: 'a fast walk (about 5.4 km/h)' },
     aggressive: { label: 'I am Death Incarnate!!', ceil: [2, 1, 0, 1], hard: 3, walk: 140, walkPrep: 0.5, breaks: 0, walkName: 'a steady jog (about 8.4 km/h)' },
   };
@@ -137,10 +137,15 @@
       return (1 + (FATIGUE[plan.format] ?? 0.01) * k * hrs) * (lt && lt !== 'day' ? 1 + (DARK_SLOW - 1) * k : 1);
     }
     // Bring it On! is the learned case; Death Incarnate holds pace better, Don't Hurt Me slows a lot more.
-    const SLOW_SCALE = { aggressive: 0.5, standard: 1, conservative: 3 };
-    // Don't Hurt Me isn't sped up to meet goals: it plans at this fixed steady pace (paceF; 1 = base model) and the
-    // app says what that reaches. Calibrated so a Don't Hurt Me team just about qualifies for next year.
-    const FIXED_PACE = { conservative: { 24: 0.65, 12: 0.6 } };
+    const SLOW_SCALE = { aggressive: 0.75, standard: 1, conservative: 2 };
+    // Don't Hurt Me and Bring it On! aren't sped up to meet goals: they plan at a fixed steady pace (paceF; 1 = base model)
+    // and the app says what that reaches. Calibrated with a 5.10a-onsight team: Bring it On! matches the top 2026
+    // Intermediates (about 114 laps on the 24, 69 on the 12); Don't Hurt Me just about qualifies (about 74 / 41).
+    // Only I am Death Incarnate!! searches for whatever pace the goals need (fatigue and night slowdown still apply).
+    const FIXED_PACE = { conservative: { 24: 0.75, 12: 0.65 }, standard: { 24: 0.6, 12: 0.6 } };
+    // Minutes per route for the changeover (pull the rope, swap ends, tie in), by push level.
+    const CHANGEOVER = { conservative: 3, standard: 1.5, aggressive: 1 };
+    const changeMin = plan => CHANGEOVER[plan.intensity] ?? 1.5;
     const fixedPace = plan => plan._fixedPace ?? ((FIXED_PACE[plan.intensity] || {})[plan.format] || 0);
     // Optional expected line at the easy end routes (plan.lineMin). Off by default: the goal buffer covers waits like this.
     const LINE_DEFAULT = { 12: 0, 24: 0 };
@@ -233,7 +238,7 @@
         if (w) { rows.push({ kind: 'walk', t0: t, t1: t + w / 60, from: area, to: r.area, light: light(plan, t + w / 120) }); t += w / 60; }
         const who = it.who.filter(k => WHO.includes(k));
         const q = queueMin(plan, r);
-        let m = 1 + q; for (const k of who) m += leadMin(plan, r, climber(plan, k), t + q / 60);
+        let m = changeMin(plan) + q; for (const k of who) m += leadMin(plan, r, climber(plan, k), t + q / 60);
         const row = { kind: 'route', t0: t, t1: t + m / 60, r, who, i, area: r.area, sun: sunAt(plan, r, t), light: light(plan, t), done: it.done, queue: q };
         rows.push(row); t = row.t1; area = r.area;
         applyRoute(plan, stats, r, who, t);
@@ -368,7 +373,7 @@
           }
           if (!who.length) return null;
           // a needed end route is worth its line; the line still counts in full on the timeline
-          let mins = 1 + queueMin(plan, r) * (r.sp && who.some(k => !stats[k].specials.has(r.sp)) ? 0.3 : 1); for (const k of who) mins += leadMin(plan, r, cl[k], tt, pre);
+          let mins = changeMin(plan) + queueMin(plan, r) * (r.sp && who.some(k => !stats[k].specials.has(r.sp)) ? 0.3 : 1); for (const k of who) mins += leadMin(plan, r, cl[k], tt, pre);
           let v = 0;
           for (const k of who) {
             const s = stats[k]; let x = 0;
@@ -571,7 +576,8 @@
     const routingOf = plan => plan.routing === 'simple' || plan.routing === 'flexible' ? plan.routing : (plan.routeUsed || 'simple');
     function buildWith(plan, rt) {
       plan.routeUsed = rt;
-      let lo = 0.3, hi = 3, bestItems = null;
+      // Death Incarnate never plans slower than Bring it On!'s steady pace, however easy the goals
+      let lo = 0.3, hi = plan.intensity === 'aggressive' ? FIXED_PACE.standard[plan.format] : 3, bestItems = null;
       const fixed = fixedPace(plan);
       // pick the path shape first: the one that reaches the goals with the least walking
       if (rt === 'simple' && !(plan.startWalls || []).length) {
@@ -952,7 +958,7 @@
       wu.classList.add('wrap'); wu.append(wsel, el('span', null, 'or easier for the first'), wn, el('span', null, 'routes'));
       d.appendChild(field('Warm-up', wu, plan.warm ? `Each of you starts with ${plan.warmN ?? 3} routes at ${plan.warm} or easier.` : 'Pick a grade to start the plan with easier routes.'));
       d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; plan.breakMin = undefined; })()),
-        { conservative: 'An easy, steady day: stays at or below onsight, one harder lap per hour, and plans at its own pace instead of speeding up to hit goals. Expect to just qualify for next year; big lap, point and award targets need a harder push.', standard: 'Up to one grade over onsight early, easing off overnight; two harder laps per hour.', aggressive: 'Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
+        { conservative: 'An easy, steady day: slower leads and changeovers, an easy walk, 10-minute breaks, at or below onsight with one harder lap per hour. Plans at that pace and tells you what it reaches; expect to just qualify for next year.', standard: 'A strong, steady push like the top 2026 Intermediates: up to one grade over onsight early, easing off overnight, two harder laps per hour, quick changeovers and a fast walk. Plans at that pace and tells you what it reaches.', aggressive: 'Going for the win: plans whatever pace the goals need, with the fastest changeovers and a jog between walls. Fatigue and the night still slow you a little. Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
       const I = INTENSITY[plan.intensity] || INTENSITY.standard;
       const bi = el('input'); bi.type = 'number'; bi.inputMode = 'numeric'; bi.min = 0; bi.max = 30; bi.value = breakMin(plan);
       bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = v === I.breaks ? undefined : v; save(); render(); };
@@ -982,7 +988,7 @@
       d.appendChild(field('Start at', sw, list.length ? 'The plan starts at these walls in this order, staying at each until moving on pays off, then plans the rest itself.' : 'Optional. Pick walls to start with, in order; the planner takes it from there.'));
       d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['reach', 'Skip routes too reachy'], ['coreFirst', 'Start in the North Forty core'], ['fatigue', 'Slow down at night']], { together: plan.together !== false, reach: plan.reach !== false, coreFirst: plan.coreFirst !== false, fatigue: plan.fatigue !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
-      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', (k => `At ${(INTENSITY[plan.intensity] || INTENSITY.standard).label}, leads take about ${((FATIGUE[plan.format] ?? 0.01) * k * 100).toFixed(1)}% longer for each hour into the event and ${Math.round((DARK_SLOW - 1) * k * 100)}% longer in the dark. Bring it On! matches the timed logs of 26 top 2025–2026 climbers; Death Incarnate slows half as much, Don't Hurt Me three times as much.`)(SLOW_SCALE[plan.intensity] ?? 1)));
+      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', (k => `At ${(INTENSITY[plan.intensity] || INTENSITY.standard).label}, leads take about ${((FATIGUE[plan.format] ?? 0.01) * k * 100).toFixed(1)}% longer for each hour into the event and ${Math.round((DARK_SLOW - 1) * k * 100)}% longer in the dark. Bring it On! matches the timed logs of 26 top 2025–2026 climbers; Death Incarnate slows three-quarters as much, Don't Hurt Me twice as much.`)(SLOW_SCALE[plan.intensity] ?? 1)));
       { const li = el('input'); li.type = 'number'; li.inputMode = 'numeric'; li.min = 0; li.max = 180; li.value = lineMin(plan);
         li.onchange = () => { const v = Math.max(0, Math.min(180, Math.round(+li.value || 0))); plan.lineMin = v === LINE_DEFAULT[plan.format] ? undefined : v; save(); render(); };
         const lr = el('div', 'target-row'); lr.append(li, el('span', null, 'minutes'));
@@ -1135,9 +1141,10 @@
         const bits = [`${lo(x => x.laps)} laps`, `${lo((x, i) => x.pts).toLocaleString()} points`];
         if (lo(x => x.trad)) bits.push(`${lo(x => x.trad)} trad`);
         const got = a.every(x => x.full) ? 'Full Horseshoe' : a.every(x => x.qual) ? 'qualifies for next year' : 'not enough to qualify';
-        sec.appendChild(el('p', 'warn', `At Don't Hurt Me's steady pace this plan reaches about ${bits.join(', ')} each by the end (${got}). That's short of ${goalText(plan)}. Reaching it takes Bring it On! or harder.${got === 'not enough to qualify' && !goalsOf(plan).includes('qualify') ? ' At this push level, "Qualify for next year" is the realistic goal.' : ''}`));
+        const IL = (INTENSITY[plan.intensity] || INTENSITY.standard).label, nextUp = plan.intensity === 'conservative' ? 'Bring it On! or harder' : 'I am Death Incarnate!!';
+        sec.appendChild(el('p', 'warn', `At ${IL}'s steady pace this plan reaches about ${bits.join(', ')} each by the end (${got}). That's short of ${goalText(plan)}. Reaching it takes ${nextUp}${/!$/.test(nextUp) ? '' : '.'}${got === 'not enough to qualify' && !goalsOf(plan).includes('qualify') ? ' At this push level, "Qualify for next year" is the realistic goal.' : ''}`));
       } else if (plan.unreachable) sec.appendChild(el('p', 'warn', `This plan can't reach ${goalText(plan)} for both climbers even at a very fast pace. Try a lower target, a harder push setting, or a higher division.`));
-      else if (fixedPace(plan) && !plan.manual) sec.appendChild(el('p', 'hint small', 'Planned at Don\'t Hurt Me\'s own steady pace, not sped up to fit the goals.'));
+      else if (fixedPace(plan) && !plan.manual) sec.appendChild(el('p', 'hint small', `Planned at ${(INTENSITY[plan.intensity] || INTENSITY.standard).label}'s own steady pace, not sped up to fit the goals.`));
       sec.appendChild(el('p', 'hint small', `Plan ends ${fmtAbs(plan, tl.t, true)}; event ends ${fmtAbs(plan, plan.start + F.dur, true)}.${tl.t > plan.start + F.dur + 0.01 ? ' The plan runs past the end, so trim a route or two.' : ''}`));
       // pace
       const done = plan.items.map((it, i) => ({ it, i })).filter(x => x.it.done);
@@ -1315,7 +1322,7 @@
         const who = WHO.filter(k => !tl.stats[k].done.has(r.id) && !inPlan[k].has(r.id) && (r.gu ?? -6) <= DIVS[cl[k].div].max);
         const okNow = who.filter(k => (r.gu ?? -6) <= ceilingAt(plan, cl[k], rel) + 0.01);
         const w = walkMin(tl.area, r.area, plan);
-        let mins = w + 1 + queueMin(plan, r); for (const k of (okNow.length ? okNow : who)) mins += leadMin(plan, r, cl[k], tl.t);
+        let mins = w + changeMin(plan) + queueMin(plan, r); for (const k of (okNow.length ? okNow : who)) mins += leadMin(plan, r, cl[k], tl.t);
         return { r, who: okNow.length ? okNow : who, mins, w, score: ((r.pts || 0) * (okNow.length || 0.3)) / mins };
       }).filter(c => c.who.length);
       const draw = () => {
