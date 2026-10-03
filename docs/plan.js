@@ -54,7 +54,10 @@
   window.Planner = function (ctx) {
     const { $, el, store, GU, profiles, ROUTES, AREAS, ui } = ctx;
     const byId = Object.fromEntries(ROUTES().map(r => [r.id, r]));
-    const comp = () => ROUTES().filter(r => r.n);
+    // The valley-floor crags (The Park, The Carrion Cube) aren't comp zones and sit off the walking line; no top team
+    // used them, so the planner leaves them out. They stay in the Routes tab.
+    const NO_PLAN_AREAS = new Set(['The Park', 'The Carrion Cube']);
+    const comp = () => ROUTES().filter(r => r.n && !NO_PLAN_AREAS.has(r.area));
 
     // ---------- storage ----------
     let state = store.get('hhh.plans', null);

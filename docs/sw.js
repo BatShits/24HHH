@@ -1,5 +1,5 @@
 // Service worker: keeps the app, route data and saved map tiles available offline.
-const VERSION = '2026-10-02-5d6bf7c';
+const VERSION = '2026-10-02-155a6ba';
 const APP_CACHE = 'hhh-app-' + VERSION;
 const TILE_CACHE = 'hhh-tiles';
 const SHELL = ['./', 'index.html', 'styles.css', 'sun.js', 'map.js', 'plan.js', 'app.js', 'share.js', 'photos.js', 'vendor/qrcode.js', 'vendor/jsQR.js', 'version.js', 'manifest.webmanifest',
