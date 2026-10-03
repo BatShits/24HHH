@@ -138,6 +138,10 @@
     }
     // Bring it On! is the learned case; Death Incarnate holds pace better, Don't Hurt Me slows a lot more.
     const SLOW_SCALE = { aggressive: 0.5, standard: 1, conservative: 3 };
+    // Don't Hurt Me isn't sped up to meet goals: it plans at this fixed steady pace (paceF; 1 = base model) and the
+    // app says what that reaches. Calibrated so a Don't Hurt Me team just about qualifies for next year.
+    const FIXED_PACE = { conservative: { 24: 0.65, 12: 0.6 } };
+    const fixedPace = plan => plan._fixedPace ?? ((FIXED_PACE[plan.intensity] || {})[plan.format] || 0);
     // Optional expected line at the easy end routes (plan.lineMin). Off by default: the goal buffer covers waits like this.
     const LINE_DEFAULT = { 12: 0, 24: 0 };
     const lineMin = plan => plan.lineMin ?? LINE_DEFAULT[plan.format] ?? 30;
@@ -568,12 +572,13 @@
     function buildWith(plan, rt) {
       plan.routeUsed = rt;
       let lo = 0.3, hi = 3, bestItems = null;
+      const fixed = fixedPace(plan);
       // pick the path shape first: the one that reaches the goals with the least walking
       if (rt === 'simple' && !(plan.startWalls || []).length) {
         let bestMode = null, bestScore = Infinity;
         for (const m of PATH_MODES) {
           plan.pathMode = m; plan.bufF = 1;
-          for (const pf of [1, 0.6]) { plan.paceF = pf; optimize(plan, 0); if (meets(plan)) break; }
+          for (const pf of fixed ? [fixed] : [1, 0.6]) { plan.paceF = pf; optimize(plan, 0); if (meets(plan)) break; }
           const tl = timeline(plan, plan.items); let w = 0; for (const r of tl.rows) if (r.kind === 'walk') w += (r.t1 - r.t0) * 60;
           const sc = (meets(plan) ? 0 : 1e5) - (meets(plan) ? plan.paceF * 300 : 0) + w; // meets first, then the gentlest pace, then least walking
           if (sc < bestScore) { bestScore = sc; bestMode = m; }
@@ -582,7 +587,9 @@
       } else plan.pathMode = undefined;
       // full contingency buffer if possible, else half, else none
       let ok = false;
-      for (const f of [1, 0.5, 0]) { plan.bufF = f; plan.paceF = lo; optimize(plan, 0); if (meets(plan)) { ok = true; break; } }
+      for (const f of [1, 0.5, 0]) { plan.bufF = f; plan.paceF = fixed || lo; optimize(plan, 0); if (meets(plan)) { ok = true; break; } }
+      // Don't Hurt Me plans at its own steady pace and reports what that reaches; it never speeds up to force a goal
+      if (fixed) { plan.unreachable = !ok; if (ok) polish(plan); return; }
       if (!ok) { plan.unreachable = true; return; }
       plan.unreachable = false; bestItems = plan.items;
       for (let i = 0; i < 8; i++) {
@@ -945,7 +952,7 @@
       wu.classList.add('wrap'); wu.append(wsel, el('span', null, 'or easier for the first'), wn, el('span', null, 'routes'));
       d.appendChild(field('Warm-up', wu, plan.warm ? `Each of you starts with ${plan.warmN ?? 3} routes at ${plan.warm} or easier.` : 'Pick a grade to start the plan with easier routes.'));
       d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; plan.breakMin = undefined; })()),
-        { conservative: 'Stays at or below onsight; one harder lap per hour per climber.', standard: 'Up to one grade over onsight early, easing off overnight; two harder laps per hour.', aggressive: 'Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
+        { conservative: 'An easy, steady day: stays at or below onsight, one harder lap per hour, and plans at its own pace instead of speeding up to hit goals. Expect to just qualify for next year; big lap, point and award targets need a harder push.', standard: 'Up to one grade over onsight early, easing off overnight; two harder laps per hour.', aggressive: 'Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
       const I = INTENSITY[plan.intensity] || INTENSITY.standard;
       const bi = el('input'); bi.type = 'number'; bi.inputMode = 'numeric'; bi.min = 0; bi.max = 30; bi.value = breakMin(plan);
       bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = v === I.breaks ? undefined : v; save(); render(); };
@@ -1122,7 +1129,15 @@
       const rp = el('p', 'pace-calc');
       rp.textContent = `Required pace: ${(climbing / F.dur).toFixed(1)} laps per hour per climber (${climbing} laps over ${F.dur} hours).`;
       sec.appendChild(rp);
-      if (plan.unreachable) sec.appendChild(el('p', 'warn', `This plan can't reach ${goalText(plan)} for both climbers even at a very fast pace. Try a lower target, a harder push setting, or a higher division.`));
+      if (plan.unreachable && fixedPace(plan)) {
+        // say what Don't Hurt Me actually gets you, rather than speeding the plan up to fake it
+        const st = WHO.map(k => tl.stats[k]), a = st.map(x => achievements(plan, x)), lo = f => Math.min(...st.map(f));
+        const bits = [`${lo(x => x.laps)} laps`, `${lo((x, i) => x.pts).toLocaleString()} points`];
+        if (lo(x => x.trad)) bits.push(`${lo(x => x.trad)} trad`);
+        const got = a.every(x => x.full) ? 'Full Horseshoe' : a.every(x => x.qual) ? 'qualifies for next year' : 'not enough to qualify';
+        sec.appendChild(el('p', 'warn', `At Don't Hurt Me's steady pace this plan reaches about ${bits.join(', ')} each by the end (${got}). That's short of ${goalText(plan)}. Reaching it takes Bring it On! or harder.${got === 'not enough to qualify' && !goalsOf(plan).includes('qualify') ? ' At this push level, "Qualify for next year" is the realistic goal.' : ''}`));
+      } else if (plan.unreachable) sec.appendChild(el('p', 'warn', `This plan can't reach ${goalText(plan)} for both climbers even at a very fast pace. Try a lower target, a harder push setting, or a higher division.`));
+      else if (fixedPace(plan) && !plan.manual) sec.appendChild(el('p', 'hint small', 'Planned at Don\'t Hurt Me\'s own steady pace, not sped up to fit the goals.'));
       sec.appendChild(el('p', 'hint small', `Plan ends ${fmtAbs(plan, tl.t, true)}; event ends ${fmtAbs(plan, plan.start + F.dur, true)}.${tl.t > plan.start + F.dur + 0.01 ? ' The plan runs past the end, so trim a route or two.' : ''}`));
       // pace
       const done = plan.items.map((it, i) => ({ it, i })).filter(x => x.it.done);
@@ -1384,6 +1399,6 @@
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { renderGo, importShared, _live: liveStats, _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _goalTimes: (p) => goalTimes(p), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
+    return { renderGo, importShared, _fixed: FIXED_PACE, _live: liveStats, _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _goalTimes: (p) => goalTimes(p), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
   };
 })();
