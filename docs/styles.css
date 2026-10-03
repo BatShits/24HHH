@@ -338,7 +338,12 @@ a.button { color: inherit; text-decoration: none; }
 .quick select { min-height: 40px; }
 .quick-l { font-weight: 600; font-size: .9rem; }
 .quick .checkline { min-height: 40px; margin-left: auto; font-size: .92rem; }
-.routes .wall-head { list-style: none; display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 14px 2px 4px; border-bottom: 2px solid var(--ink); }
+.routes .wall-head { list-style: none; display: flex; align-items: baseline; gap: 8px; padding: 14px 2px 4px; border-bottom: 2px solid var(--ink); cursor: pointer; }
+.routes .wall-head .wall-name { flex: 1; }
+.routes .wall-head.folded { padding-top: 10px; border-bottom-width: 1px; }
+.wall-fold { color: var(--muted); width: 1em; }
+.count-row { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; }
+.linkbtn { border: 0; background: none; color: var(--accent); font: inherit; font-size: .9rem; font-weight: 600; padding: 6px 0; cursor: pointer; }
 .wall-name { font-weight: 700; }
 .wall-meta { font-size: .82rem; color: var(--muted); }
 

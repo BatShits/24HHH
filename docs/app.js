@@ -193,8 +193,17 @@
     const ordered = [...groups.keys()].sort((a, b) => (wallRank[a] ?? 1e9) - (wallRank[b] ?? 1e9) || a.localeCompare(b));
     const flat = [];
     for (const w of ordered) flat.push({ head: w, n: groups.get(w).length, side: groups.get(w)[0].side }, ...groups.get(w));
+    const fold = new Set(ui.foldWalls || []); let folded = false;
+    $('#foldAll').textContent = ordered.length && ordered.every(w => fold.has(w)) ? 'Expand all walls' : 'Collapse all walls';
+    $('#foldAll').hidden = !ordered.length;
     for (const r of flat) {
-      if (r.head) { const h = el('li', 'wall-head'); h.append(el('span', 'wall-name', r.head), el('span', 'wall-meta', `${r.side ? (r.side === 'Valley' ? 'Valley floor' : r.side + ' side') + ', ' : ''}${r.n} route${r.n === 1 ? '' : 's'}`)); frag.appendChild(h); continue; }
+      if (r.head) {
+        folded = fold.has(r.head);
+        const h = el('li', 'wall-head' + (folded ? ' folded' : '')); h.dataset.wall = r.head; h.tabIndex = 0; h.setAttribute('role', 'button'); h.setAttribute('aria-expanded', !folded);
+        h.append(el('span', 'wall-fold', folded ? '▸' : '▾'), el('span', 'wall-name', r.head), el('span', 'wall-meta', `${r.side ? (r.side === 'Valley' ? 'Valley floor' : r.side + ' side') + ', ' : ''}${r.n} route${r.n === 1 ? '' : 's'}`));
+        frag.appendChild(h); continue;
+      }
+      if (folded) continue;
       const li = el('li', 'route'); li.dataset.id = r.id; li.tabIndex = 0; li.setAttribute('role', 'button');
       const g = el('span', 'grade ' + (feelOf(r) ? 'feel-' + feelOf(r) : ''), r.g || '?');
       const mid = el('span', 'mid');
@@ -216,8 +225,15 @@
     ol.appendChild(frag);
     if (!list.length) { const li = el('li', 'empty', 'No routes match. Clear a filter or widen the grade range.'); ol.appendChild(li); }
   }
-  $('#routes').addEventListener('click', e => { const li = e.target.closest('.route'); if (li) openDetail(li.dataset.id); });
-  $('#routes').addEventListener('keydown', e => { if (e.key === 'Enter') { const li = e.target.closest('.route'); if (li) openDetail(li.dataset.id); } });
+  // wall headers fold their routes away; the folded set is remembered
+  const toggleWall = w => { const f = new Set(ui.foldWalls || []); f.has(w) ? f.delete(w) : f.add(w); ui.foldWalls = [...f]; save(); renderList(); };
+  $('#routes').addEventListener('click', e => { const h = e.target.closest('.wall-head'); if (h) return toggleWall(h.dataset.wall); const li = e.target.closest('.route'); if (li) openDetail(li.dataset.id); });
+  $('#routes').addEventListener('keydown', e => { if (e.key !== 'Enter' && e.key !== ' ') return; const h = e.target.closest('.wall-head'); if (h) { e.preventDefault(); return toggleWall(h.dataset.wall); } const li = e.target.closest('.route'); if (li && e.key === 'Enter') openDetail(li.dataset.id); });
+  $('#foldAll').onclick = () => {
+    const walls = [...$('#routes').querySelectorAll('.wall-head')].map(h => h.dataset.wall);
+    const all = walls.every(w => (ui.foldWalls || []).includes(w));
+    ui.foldWalls = all ? [] : [...new Set([...(ui.foldWalls || []), ...walls])]; save(); renderList();
+  };
 
   // ---------- detail ----------
   function row(dl, k, v) { if (v == null || v === '') return; dl.append(el('dt', null, k), el('dd', null, v)); }
