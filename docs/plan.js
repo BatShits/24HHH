@@ -127,10 +127,10 @@
       const lt = pre ? pre.lt : light(plan, abs);
       return m * slowF(plan, abs, lt) * (plan.manual ? (MANUAL_PACE[plan.intensity] || 1) : (plan.paceF || 1));
     }
-    // Real teams front-load: in 2026 the top 24-hour Intermediates logged about 40 / 35 / 23 / 15 laps per 6-hour block.
+    // From timed logs of 26 top 2025-26 climbers: 24-hour laps per 6-hour block about 26/28/24/21%, 12-hour per 3-hour block about 29/22/25/24%.
     // Leads get slower as the hours pile up and slower again in the dark. plan.fatigue === false turns this off.
-    const FATIGUE = { 24: 0.03, 12: 0.015 }, DARK_SLOW = 1.25;
-    const CORE_H = { 24: 8, 12: 4 }; // hours to favour the North Forty core at the start
+    const FATIGUE = { 24: 0.01, 12: 0.012 }, DARK_SLOW = 1.05;
+    const CORE_H = { 24: 0, 12: 4 }; // hours to favour the North Forty core at the start (top 12-hour teams stayed in zones 8-15; 24-hour teams were split)
     function slowF(plan, abs, lt) {
       if (plan.fatigue === false) return lt && lt !== 'day' ? 1.1 : 1;
       const hrs = Math.max(0, abs - plan.start);
@@ -973,7 +973,7 @@
       d.appendChild(field('Start at', sw, list.length ? 'The plan starts at these walls in this order, staying at each until moving on pays off, then plans the rest itself.' : 'Optional. Pick walls to start with, in order; the planner takes it from there.'));
       d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['reach', 'Skip routes too reachy'], ['coreFirst', 'Start in the North Forty core'], ['fatigue', 'Slow down at night']], { together: plan.together !== false, reach: plan.reach !== false, coreFirst: plan.coreFirst !== false, fatigue: plan.fatigue !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
-      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', `Leads take longer as the hours go on (about ${Math.round((FATIGUE[plan.format] ?? 0.03) * 100)}% more per hour climbed) and 25% longer in the dark, like the top 2026 teams, who did most of their laps by 10 pm.`));
+      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', `Leads take a little longer as the hours go on (about ${((FATIGUE[plan.format] ?? 0.01) * 100).toFixed(1)}% more per hour) and ${Math.round((DARK_SLOW - 1) * 100)}% longer in the dark. Calibrated to the timed logs of 26 top 2025–2026 climbers, whose pace eased only slightly through the night.`));
       { const li = el('input'); li.type = 'number'; li.inputMode = 'numeric'; li.min = 0; li.max = 180; li.value = lineMin(plan);
         li.onchange = () => { const v = Math.max(0, Math.min(180, Math.round(+li.value || 0))); plan.lineMin = v === LINE_DEFAULT[plan.format] ? undefined : v; save(); render(); };
         const lr = el('div', 'target-row'); lr.append(li, el('span', null, 'minutes'));
