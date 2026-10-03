@@ -133,9 +133,11 @@
     const CORE_H = { 24: 0, 12: 4 }; // hours to favour the North Forty core at the start (top 12-hour teams stayed in zones 8-15; 24-hour teams were split)
     function slowF(plan, abs, lt) {
       if (plan.fatigue === false) return lt && lt !== 'day' ? 1.1 : 1;
-      const hrs = Math.max(0, abs - plan.start);
-      return (1 + (FATIGUE[plan.format] ?? 0.03) * hrs) * (lt && lt !== 'day' ? DARK_SLOW : 1);
+      const hrs = Math.max(0, abs - plan.start), k = SLOW_SCALE[plan.intensity] ?? 1;
+      return (1 + (FATIGUE[plan.format] ?? 0.01) * k * hrs) * (lt && lt !== 'day' ? 1 + (DARK_SLOW - 1) * k : 1);
     }
+    // Bring it On! is the learned case; Death Incarnate holds pace better, Don't Hurt Me slows a lot more.
+    const SLOW_SCALE = { aggressive: 0.5, standard: 1, conservative: 3 };
     // Optional expected line at the easy end routes (plan.lineMin). Off by default: the goal buffer covers waits like this.
     const LINE_DEFAULT = { 12: 0, 24: 0 };
     const lineMin = plan => plan.lineMin ?? LINE_DEFAULT[plan.format] ?? 30;
@@ -973,7 +975,7 @@
       d.appendChild(field('Start at', sw, list.length ? 'The plan starts at these walls in this order, staying at each until moving on pays off, then plans the rest itself.' : 'Optional. Pick walls to start with, in order; the planner takes it from there.'));
       d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['reach', 'Skip routes too reachy'], ['coreFirst', 'Start in the North Forty core'], ['fatigue', 'Slow down at night']], { together: plan.together !== false, reach: plan.reach !== false, coreFirst: plan.coreFirst !== false, fatigue: plan.fatigue !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
-      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', `Leads take a little longer as the hours go on (about ${((FATIGUE[plan.format] ?? 0.01) * 100).toFixed(1)}% more per hour) and ${Math.round((DARK_SLOW - 1) * 100)}% longer in the dark. Calibrated to the timed logs of 26 top 2025–2026 climbers, whose pace eased only slightly through the night.`));
+      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', (k => `At ${(INTENSITY[plan.intensity] || INTENSITY.standard).label}, leads take about ${((FATIGUE[plan.format] ?? 0.01) * k * 100).toFixed(1)}% longer for each hour into the event and ${Math.round((DARK_SLOW - 1) * k * 100)}% longer in the dark. Bring it On! matches the timed logs of 26 top 2025–2026 climbers; Death Incarnate slows half as much, Don't Hurt Me three times as much.`)(SLOW_SCALE[plan.intensity] ?? 1)));
       { const li = el('input'); li.type = 'number'; li.inputMode = 'numeric'; li.min = 0; li.max = 180; li.value = lineMin(plan);
         li.onchange = () => { const v = Math.max(0, Math.min(180, Math.round(+li.value || 0))); plan.lineMin = v === LINE_DEFAULT[plan.format] ? undefined : v; save(); render(); };
         const lr = el('div', 'target-row'); lr.append(li, el('span', null, 'minutes'));
