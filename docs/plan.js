@@ -361,6 +361,7 @@
             const bucket = GU2(gradeLabel(r.gu, r.g));
             // separate grade ranges: sport (and mixed) use gmin/gmax, trad uses tmin/tradMax
             const isTrad = r.type === 'trad', lo = isTrad ? plan.tmin : plan.gmin, hi = isTrad ? plan.tradMax : plan.gmax;
+            if (isTrad && plan.noTrad) continue;
             if (lo && bucket < GU2(lo)) continue;
             if (hi && bucket > GU2(hi)) continue;
             if (plan.darkMax && pre.lt !== 'day' && bucket > GU2(plan.darkMax)) continue;
@@ -950,8 +951,13 @@
       rg.append(gSel(plan.gmin, 'Lowest: any', v => { plan.gmin = v; }, 'Lowest sport grade'), el('span', null, 'to'), gSel(plan.gmax, 'Highest: any', v => { plan.gmax = v; }, 'Highest sport grade'));
       d.appendChild(field('Sport grade range', rg));
       const tk = el('div', 'target-row');
-      tk.append(gSel(plan.tmin, 'Lowest: any', v => { plan.tmin = v; }, 'Lowest trad grade'), el('span', null, 'to'), gSel(plan.tradMax, 'Highest: any', v => { plan.tradMax = v; }, 'Highest trad grade'));
-      d.appendChild(field('Trad grade range', tk, 'Only routes in these ranges get planned; division and push level can still cap the top.'));
+      const nt = el('label', 'checkline'); const ntc = el('input'); ntc.type = 'checkbox'; ntc.checked = !!plan.noTrad;
+      ntc.onchange = () => { plan.noTrad = ntc.checked || undefined; save(); render(); };
+      nt.append(ntc, el('span', null, 'No trad'));
+      tk.append(nt);
+      if (!plan.noTrad) tk.append(gSel(plan.tmin, 'Lowest: any', v => { plan.tmin = v; }, 'Lowest trad grade'), el('span', null, 'to'), gSel(plan.tradMax, 'Highest: any', v => { plan.tradMax = v; }, 'Highest trad grade'));
+      const tradGoal = goalsOf(plan).filter(g => g === 'trad' || g === 'golden');
+      d.appendChild(field('Trad grade range', tk, plan.noTrad ? (tradGoal.length ? `No trad is on, but ${tradGoal.map(g => GOALS[g].replace(/ \(.*\)/, '')).join(' and ')} needs trad laps, so that goal can't be met.` : 'Trad routes are left out of the plan. Mixed routes still count as sport.') : 'Only routes in these ranges get planned; division and push level can still cap the top.'));
       const dk = el('div', 'target-row'); dk.append(gSel(plan.darkMax, 'No limit', v => { plan.darkMax = v; }, 'Hardest grade after dark'));
       const dl = Sun.daylight(plan.date);
       d.appendChild(field('Hardest grade after dark', dk, plan.darkMax ? `From dusk (about ${Sun.fmt(dl.set)}) until it's light again (about ${Sun.fmt(dl.rise)}), nothing harder than ${plan.darkMax}; harder routes get pulled into daylight.` : 'Optional. Caps the grade for climbing in the dark.'));
@@ -1321,7 +1327,7 @@
       const rel = (tl.t - plan.start) / FORMATS[plan.format].dur;
       const cl = Object.fromEntries(WHO.map(k => [k, climber(plan, k)]));
       const inPlan = Object.fromEntries(WHO.map(k => [k, new Set(plan.items.filter(it => it.rid && it.who && it.who.includes(k)).map(it => it.rid))]));
-      const cands = comp().filter(r => !wall || r.area === wall).map(r => {
+      const cands = comp().filter(r => (!wall || r.area === wall) && !(plan.noTrad && r.type === 'trad')).map(r => {
         const who = WHO.filter(k => !tl.stats[k].done.has(r.id) && !inPlan[k].has(r.id) && (r.gu ?? -6) <= DIVS[cl[k].div].max);
         const okNow = who.filter(k => (r.gu ?? -6) <= ceilingAt(plan, cl[k], rel) + 0.01);
         const w = walkMin(tl.area, r.area, plan);
