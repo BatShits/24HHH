@@ -139,7 +139,7 @@
     const CORE_H = { 24: 6, 12: 4 }; // hours to favour the North Forty core at the start (top 12-hour teams stayed in zones 8-15; 24-hour teams were split, so it's an option)
     function slowF(plan, abs, lt) {
       if (plan.fatigue === false) return lt && lt !== 'day' ? 1.1 : 1;
-      const hrs = Math.max(0, abs - plan.start), k = SLOW_SCALE[plan.intensity] ?? 1;
+      const hrs = Math.max(0, abs - plan.start), k = push(plan).slow;
       return (1 + (FATIGUE[plan.format] ?? 0.01) * k * hrs) * (lt && lt !== 'day' ? 1 + (DARK_SLOW - 1) * k : 1);
     }
     // Bring it On! is the learned case; Death Incarnate holds pace better, Don't Hurt Me slows a lot more.
@@ -151,7 +151,23 @@
     const FIXED_PACE = { conservative: { 24: 0.75, 12: 0.65 }, standard: { 24: 0.6, 12: 0.6 } };
     // Minutes per route for the changeover (pull the rope, swap ends, tie in), by push level.
     const CHANGEOVER = { conservative: 3, standard: 1.5, aggressive: 1 };
-    const changeMin = plan => CHANGEOVER[plan.intensity] ?? 1.5;
+    // Effective push settings. Death Incarnate scales from Bring it On!'s settings (effort 0) to all-out (effort 1):
+    // the pace search sets plan.effort with the climbing pace, so an easy target doesn't get free time from no breaks and jogging.
+    function push(plan) {
+      const k = plan && INTENSITY[plan.intensity] ? plan.intensity : 'standard', I = INTENSITY[k];
+      const base = { walk: I.walk, walkPrep: I.walkPrep, breaks: I.breaks, change: CHANGEOVER[k], slow: SLOW_SCALE[k] };
+      if (k !== 'aggressive' || plan.manual || plan.effort == null) return base;
+      const S = INTENSITY.standard, e = Math.max(0, Math.min(1, plan.effort)), mix = (a, b) => a + (b - a) * e;
+      return { walk: mix(S.walk, I.walk), walkPrep: mix(S.walkPrep, I.walkPrep), breaks: Math.round(mix(S.breaks, I.breaks)), change: mix(CHANGEOVER.standard, CHANGEOVER.aggressive), slow: mix(SLOW_SCALE.standard, SLOW_SCALE.aggressive) };
+    }
+    // Death Incarnate's one search knob x: below 0 eases the climbing pace with Bring it On!'s settings;
+    // 0 to 1 raises effort (breaks, changeovers, walking, slowdown) and climbing pace together up to all-out.
+    function setEffort(plan, x) {
+      const pf0 = FIXED_PACE.standard[plan.format] || 0.6;
+      plan.effortX = x; plan.effort = Math.max(0, x);
+      plan.paceF = x < 0 ? pf0 + (3 - pf0) * -x : pf0 - (pf0 - 0.3) * x;
+    }
+    const changeMin = plan => push(plan).change;
     const fixedPace = plan => plan._fixedPace ?? ((FIXED_PACE[plan.intensity] || {})[plan.format] || 0);
     // Optional expected line at the easy end routes (plan.lineMin). Off by default: the goal buffer covers waits like this.
     const LINE_DEFAULT = { 12: 0, 24: 0 };
@@ -167,7 +183,7 @@
     function walkMin(a, b, plan) {
       if (!a || a === b) return 0;
       const A = locOf(a), B = locOf(b);
-      const I = INTENSITY[plan && plan.intensity] || INTENSITY.standard;
+      const I = push(plan);
       const da = a === CHECKIN ? (B && B.d && B.d[CHECKIN]) : (A && A.d && A.d[b === CHECKIN ? CHECKIN : b]);
       if (da != null) return I.walkPrep + da / I.walk; // trail distance (OpenStreetMap network)
       if (!A || !B || A.lat == null || B.lat == null) return I.walkPrep + 450 / I.walk;
@@ -176,7 +192,7 @@
       return I.walkPrep + d * 1.3 / I.walk;
     }
     const sunPref = plan => plan.sunPref || (plan.avoidSun === false ? 'none' : 'shade');
-    const breakMin = plan => plan.breakMin != null ? plan.breakMin : (INTENSITY[plan.intensity] || INTENSITY.standard).breaks;
+    const breakMin = plan => plan.breakMin != null ? plan.breakMin : push(plan).breaks;
     function sunAt(plan, r, abs) {
       const a = AREAS()[r.area]; if (!a) return 'varies';
       const x = dh(plan, abs); return Sun.state(a.aspect, a.shady, x.ymd, x.hour);
@@ -589,14 +605,16 @@
       plan.routeUsed = rt;
       // Death Incarnate finds the slowest steady pace that still meets the goals with the buffer, so a lower target means a
       // gentler pace (not a bigger buffer): the plan shows what the goal actually demands
-      let lo = 0.3, hi = 3, bestItems = null;
+      // the search runs on setEffort's x: 1 = all-out, -1 = far gentler than Bring it On!
+      let lo = 1, hi = -1, bestItems = null;
       const fixed = fixedPace(plan);
+      const setP = v => { if (fixed) { plan.paceF = fixed; plan.effort = plan.effortX = undefined; } else setEffort(plan, v); };
       // pick the path shape first: the one that reaches the goals with the least walking
       if (rt === 'simple' && !(plan.startWalls || []).length) {
         let bestMode = null, bestScore = Infinity;
         for (const m of coreOn(plan) ? CORE_MODES : PATH_MODES) {
           plan.pathMode = m; plan.bufF = 1;
-          for (const pf of fixed ? [fixed] : [1.2, 0.8, 0.6, 0.45]) { plan.paceF = pf; optimize(plan, 0); if (meets(plan)) break; }
+          for (const x of fixed ? [0] : [-0.3, 0, 0.5, 1]) { setP(x); optimize(plan, 0); if (meets(plan)) break; }
           const tl = timeline(plan, plan.items); let w = 0; for (const r of tl.rows) if (r.kind === 'walk') w += (r.t1 - r.t0) * 60;
           const sc = (meets(plan) ? 0 : 1e5) - (meets(plan) ? plan.paceF * 300 : 0) + w; // meets first, then the gentlest pace, then least walking
           if (sc < bestScore) { bestScore = sc; bestMode = m; }
@@ -605,23 +623,46 @@
       } else plan.pathMode = undefined;
       // full contingency buffer if possible, else half, else none
       let ok = false;
-      for (const f of [1, 0.5, 0]) { plan.bufF = f; plan.paceF = fixed || lo; optimize(plan, 0); if (meets(plan)) { ok = true; break; } }
+      for (const f of [1, 0.5, 0]) { plan.bufF = f; setP(lo); optimize(plan, 0); if (meets(plan)) { ok = true; break; } }
       // Don't Hurt Me plans at its own steady pace and reports what that reaches; it never speeds up to force a goal
       if (fixed) { plan.unreachable = !ok; if (ok) polish(plan); return; }
       if (!ok) { plan.unreachable = true; return; }
       plan.unreachable = false; bestItems = plan.items;
-      for (let i = 0; i < 8; i++) {
-        const mid = (lo + hi) / 2; plan.paceF = mid; optimize(plan, 0);
+      for (let i = 0; i < 9; i++) {
+        const mid = (lo + hi) / 2; setP(mid); optimize(plan, 0);
         if (meets(plan)) { lo = mid; bestItems = plan.items; } else hi = mid;
       }
-      plan.paceF = lo; plan.items = bestItems;
+      setP(lo); plan.items = bestItems;
       polish(plan);
+    }
+    // What the plan asks of you, climbing and everything else, at the chosen push level
+    function pacingTable(plan, tl, climbM) {
+      const P = push(plan), F = FORMATS[plan.format], c = climber(plan, 'me'), I = INTENSITY[plan.intensity] || INTENSITY.standard;
+      const tbl = el('table', 'sumtable pacing'); const h = el('tr'); const th = el('th', null, 'Pacing'); th.colSpan = 2; h.appendChild(th); tbl.appendChild(h);
+      const row = (k, v, title) => { const tr = el('tr'); tr.append(el('th', null, k), el('td', null, v)); if (title) tr.title = title; tbl.appendChild(tr); };
+      const pf = plan.manual ? (MANUAL_PACE[plan.intensity] || 1) : (plan.paceF || 1), ref = FIXED_PACE.standard[plan.format] || 0.6;
+      if (plan.intensity === 'aggressive' && !plan.manual && plan.effortX != null) {
+        const x = plan.effortX;
+        row('Effort', x <= 0.005 ? (x < -0.005 ? `Bring it On!'s settings, climbing eased off: this target doesn't need more` : `Bring it On!'s settings`) : `${Math.round(x * 100)}% of the way from Bring it On! to all-out`,
+          'Death Incarnate finds the least effort that meets your goals with the buffer: breaks, changeovers, walking speed, slowdown and climbing pace all scale together.');
+      }
+      const night = plan.start + (plan.format === '24' ? 17 : F.dur - 0.5), refR = { gu: c.os - 2, ht: 60, type: 'sport' };
+      const fresh = leadMin(plan, refR, c, plan.start, { lt: 'day' }), late = leadMin(plan, refR, c, night, { lt: light(plan, night) });
+      row('Climbing', `Lead time x${pf.toFixed(2)} (Bring it On! x${ref.toFixed(2)}; lower is faster). 60 ft, two grades under onsight: ${fresh.toFixed(1)} min fresh, ${late.toFixed(1)} min ${fmtAbs(plan, night, true)}.`,
+        'Lead time covers tying in, climbing, clipping and lowering. 1.00 is the base model; fatigue and the dark add to it.');
+      const laps = tl.rows.filter(r => r.kind === 'route').length;
+      if (laps) row('Per route', `${(climbM / laps).toFixed(1)} min average for the pair (both leads + changeover)`);
+      row('Changeover', `${P.change.toFixed(1)} min per route (pull, swap ends, tie in)`);
+      row('Walking', `${Math.round(P.walk)} m/min (about ${(P.walk * 60 / 1609.34).toFixed(1)} mph) plus ${P.walkPrep.toFixed(1)} min to pack up at each move`);
+      const bm = breakMin(plan); row('Breaks', bm ? `${bm} min every hour (about ${(bm * F.dur / 60).toFixed(1)} h in all)` : 'None');
+      row('Slowdown', plan.fatigue === false ? 'Off (only 10% slower in the dark)' : `+${((FATIGUE[plan.format] ?? 0.01) * P.slow * 100).toFixed(1)}% lead time per hour into the event, +${((DARK_SLOW - 1) * P.slow * 100).toFixed(1)}% in the dark`);
+      return tbl;
     }
     const walkOf = plan => { let w = 0; for (const r of timeline(plan, plan.items).rows) if (r.kind === 'walk') w += (r.t1 - r.t0) * 60; return w; };
     function build(plan) {
       plan.manual = false;
       if (plan.routing === 'simple' || plan.routing === 'flexible') return buildWith(plan, plan.routing);
-      const keys = ['items', 'paceF', 'bufF', 'pathMode', 'unreachable', 'routeUsed'];
+      const keys = ['items', 'paceF', 'effort', 'effortX', 'bufF', 'pathMode', 'unreachable', 'routeUsed'];
       const snap = () => Object.fromEntries(keys.map(k => [k, plan[k]]));
       buildWith(plan, 'simple'); const a = snap(), wa = a.unreachable ? 0 : walkOf(plan);
       buildWith(plan, 'flexible'); const b = snap(), wb = b.unreachable ? 0 : walkOf(plan);
@@ -974,13 +1015,13 @@
       const wsel = gSel(plan.warm, 'No warm-up', v => { plan.warm = v; }, 'Warm-up grade'); wsel.style.flex = '1 1 100%';
       wu.classList.add('wrap'); wu.append(wsel, el('span', null, 'or easier for the first'), wn, el('span', null, 'routes'));
       d.appendChild(field('Warm-up', wu, plan.warm ? `Each of you starts with ${plan.warmN ?? 3} routes at ${plan.warm} or easier.` : 'Pick a grade to start the plan with easier routes.'));
-      d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; plan.breakMin = undefined; })()),
-        { conservative: 'An easy, steady day: slower leads and changeovers, an easy walk, 10-minute breaks, at or below onsight with one harder lap per hour. Plans at that pace and tells you what it reaches; expect to just qualify for next year.', standard: 'A strong, steady push like the top 2026 Intermediates: up to one grade over onsight early, easing off overnight, two harder laps per hour, quick changeovers and a fast walk. Plans at that pace and tells you what it reaches.', aggressive: 'Going for the win: plans whatever pace the goals need, with the fastest changeovers and a jog between walls. Fatigue and the night still slow you a little. Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
+      d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; plan.breakMin = undefined; plan.effort = plan.effortX = undefined; })()),
+        { conservative: 'An easy, steady day: slower leads and changeovers, an easy walk, 10-minute breaks, at or below onsight with one harder lap per hour. Plans at that pace and tells you what it reaches; expect to just qualify for next year.', standard: 'A strong, steady push like the top 2026 Intermediates: up to one grade over onsight early, easing off overnight, two harder laps per hour, quick changeovers and a fast walk. Plans at that pace and tells you what it reaches.', aggressive: 'Going for the win: plans the least effort your goals need, from Bring it On!\'s settings up to all-out (no breaks, the fastest changeovers, a jog between walls, faster leads). The Pacing table shows what your target takes. Fatigue and the night still slow you. Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
       const I = INTENSITY[plan.intensity] || INTENSITY.standard;
       const bi = el('input'); bi.type = 'number'; bi.inputMode = 'numeric'; bi.min = 0; bi.max = 30; bi.value = breakMin(plan);
-      bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = v === I.breaks ? undefined : v; save(); render(); };
+      bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = plan.intensity === 'aggressive' ? (bi.value === '' ? undefined : v) : v === I.breaks ? undefined : v; save(); render(); };
       const brow = el('div', 'target-row'); brow.append(bi, el('span', null, 'minutes per hour'));
-      d.appendChild(field('Breaks', brow, `Suggested for ${I.label} ${I.breaks} min per hour. Taken as one break each hour. Walking between walls is ${I.walkName}.`));
+      d.appendChild(field('Breaks', brow, `${plan.intensity === 'aggressive' ? 'Death Incarnate scales from 5 to 0 min per hour with the target unless you set it here.' : `Suggested for ${I.label} ${I.breaks} min per hour.`} Taken as one break each hour.${plan.intensity === 'aggressive' ? ' Clear the box to let it scale again.' : ''} Walking between walls is ${plan.intensity === 'aggressive' ? 'from a fast walk up to a steady jog, with the target' : I.walkName}.`));
       const sp0 = sunPref(plan);
       const rt0 = plan.routing === 'simple' || plan.routing === 'flexible' ? plan.routing : 'auto';
       d.appendChild(field('Routing', chipRow([['auto', 'Best of both'], ['simple', 'Simple path'], ['flexible', 'Flexible']], rt0,
@@ -1005,7 +1046,7 @@
       d.appendChild(field('Start at', sw, list.length ? 'The plan starts at these walls in this order, staying at each until moving on pays off, then plans the rest itself.' : 'Optional. Pick walls to start with, in order; the planner takes it from there.'));
       d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['reach', 'Skip routes too reachy'], ['coreFirst', 'Start in the North Forty core'], ['fatigue', 'Slow down at night']], { together: plan.together !== false, reach: plan.reach !== false, coreFirst: plan.coreFirst !== false, fatigue: plan.fatigue !== false },
         v => upd(() => { plan[v] = plan[v] === false; })(), false)));
-      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', (k => `At ${(INTENSITY[plan.intensity] || INTENSITY.standard).label}, leads take about ${((FATIGUE[plan.format] ?? 0.01) * k * 100).toFixed(1)}% longer for each hour into the event and ${Math.round((DARK_SLOW - 1) * k * 100)}% longer in the dark. Bring it On! matches the timed logs of 26 top 2025–2026 climbers; Death Incarnate slows three-quarters as much, Don't Hurt Me twice as much.`)(SLOW_SCALE[plan.intensity] ?? 1)));
+      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', (k => `At ${(INTENSITY[plan.intensity] || INTENSITY.standard).label}, leads take about ${((FATIGUE[plan.format] ?? 0.01) * k * 100).toFixed(1)}% longer for each hour into the event and ${Math.round((DARK_SLOW - 1) * k * 100)}% longer in the dark. Bring it On! matches the timed logs of 26 top 2025–2026 climbers; Death Incarnate slows between that and three-quarters as much (it scales with the target), Don't Hurt Me twice as much.`)(push(plan).slow)));
       { const li = el('input'); li.type = 'number'; li.inputMode = 'numeric'; li.min = 0; li.max = 180; li.value = lineMin(plan);
         li.onchange = () => { const v = Math.max(0, Math.min(180, Math.round(+li.value || 0))); plan.lineMin = v === LINE_DEFAULT[plan.format] ? undefined : v; save(); render(); };
         const lr = el('div', 'target-row'); lr.append(li, el('span', null, 'minutes'));
@@ -1152,6 +1193,7 @@
       const rp = el('p', 'pace-calc');
       rp.textContent = `Required pace: ${(climbing / F.dur).toFixed(1)} laps per hour per climber (${climbing} laps over ${F.dur} hours).`;
       sec.appendChild(rp);
+      sec.appendChild(pacingTable(plan, tl, climbM));
       if (plan.unreachable && fixedPace(plan)) {
         // say what Don't Hurt Me actually gets you, rather than speeding the plan up to fake it
         const st = WHO.map(k => tl.stats[k]), a = st.map(x => achievements(plan, x)), lo = f => Math.min(...st.map(f));
@@ -1241,7 +1283,7 @@
           lineDrawn = true; const end = plan.start + FORMATS[plan.format].dur;
           list.appendChild(el('li', 'p-goalline', `Goals met at ${fmtAbs(plan, doneAt, true)} · ${(end - doneAt).toFixed(1)} h buffer. Everything below is optional.`));
         }
-        if (row.kind === 'walk') { list.appendChild(el('li', 'p-walk light-' + row.light, `${(INTENSITY[plan.intensity] || INTENSITY.standard).walk >= 120 ? 'Jog' : 'Walk'} ${Math.max(1, Math.round((row.t1 - row.t0) * 60))} min to ${placeName(row.to)}`)); continue; }
+        if (row.kind === 'walk') { list.appendChild(el('li', 'p-walk light-' + row.light, `${push(plan).walk >= 120 ? 'Jog' : 'Walk'} ${Math.max(1, Math.round((row.t1 - row.t0) * 60))} min to ${placeName(row.to)}`)); continue; }
         if (row.kind === 'checkin' || row.kind === 'break') {
           const li = el('li', 'p-break ' + row.kind + (row.auto ? ' auto' : '')); li.append(el('span', 'p-time', fmtAbs(plan, row.t0, true)), el('span', null, `${row.label}, ${Math.round((row.t1 - row.t0) * 60)} min`));
           if (row.i != null) { const x = el('button', 'icon', '×'); x.type = 'button'; x.setAttribute('aria-label', 'Remove break'); x.onclick = () => { plan.items.splice(row.i, 1); save(); render(); ctx.onPlanChange(); }; li.appendChild(x); }
