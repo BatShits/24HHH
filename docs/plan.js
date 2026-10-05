@@ -33,6 +33,9 @@
   const WHO = ['me', 'partner'];
   const TARGET_DEFAULT = { 24: { laps: 100, score: 12000, height: 5280, trad: 55 }, 12: { laps: 65, score: 8000, height: 3000, trad: 40 } };
   const PATH_MODES = ['loopW', 'loopE', 'uE', 'uW'];
+  const CORE_MODES = ['coreW', 'uW']; // path shapes that start in the North Forty core (both head West first)
+  // "Start in the North Forty core": on unless turned off; coverage goals and chosen start walls decide the start themselves
+  const coreOn = plan => plan.coreFirst !== false && !['full', 'golden'].some(g => (plan.goals || (plan.goal ? [plan.goal] : [])).includes(g)) && !(plan.startWalls || []).length;
   const PATH_WINDOW = 2; // how many climbable walls ahead the planner may pick from
   const IDLE_LABEL = 'Nothing left that fits your settings';
   const MANUAL_PACE = { conservative: 1.2, standard: 1, aggressive: 0.85 }; // lead-time multiplier for hand-built plans
@@ -133,7 +136,7 @@
     // From timed logs of 26 top 2025-26 climbers: 24-hour laps per 6-hour block about 26/28/24/21%, 12-hour per 3-hour block about 29/22/25/24%.
     // Leads get slower as the hours pile up and slower again in the dark. plan.fatigue === false turns this off.
     const FATIGUE = { 24: 0.01, 12: 0.012 }, DARK_SLOW = 1.05;
-    const CORE_H = { 24: 0, 12: 4 }; // hours to favour the North Forty core at the start (top 12-hour teams stayed in zones 8-15; 24-hour teams were split)
+    const CORE_H = { 24: 6, 12: 4 }; // hours to favour the North Forty core at the start (top 12-hour teams stayed in zones 8-15; 24-hour teams were split, so it's an option)
     function slowF(plan, abs, lt) {
       if (plan.fatigue === false) return lt && lt !== 'day' ? 1.1 : 1;
       const hrs = Math.max(0, abs - plan.start), k = SLOW_SCALE[plan.intensity] ?? 1;
@@ -303,9 +306,11 @@
       // path shapes: a loop round the top (W first or E first), or a U through the valley floor (cross at the south end)
       const sideWalls = Object.keys(byArea).filter(a => GRP[a] && POS[a] != null).sort((x, y) => POS[x] - POS[y]);
       const Wsd = sideWalls.filter(a => GRP[a] === 'W'), Esd = sideWalls.filter(a => GRP[a] === 'E');
-      const mode = plan.pathMode || (firstSide === 'E' ? 'loopE' : 'loopW');
+      const mode = plan.pathMode || (coreOn(plan) ? 'coreW' : firstSide === 'E' ? 'loopE' : 'loopW');
+      // coreW: start in the North Forty core, sweep down the West side, walk back up and cross to the East at the top
       const PATH = mode === 'loopW' ? sideWalls.slice() : mode === 'loopE' ? sideWalls.slice().reverse()
-        : mode === 'uE' ? [...Esd, ...Wsd] : [...Wsd.slice().reverse(), ...Esd.slice().reverse()];
+        : mode === 'uE' ? [...Esd, ...Wsd] : mode === 'coreW' ? [...Wsd.slice().reverse(), ...Esd]
+        : [...Wsd.slice().reverse(), ...Esd.slice().reverse()];
       // valley-floor walls (The Park, Carrion Cube) sit off the loop: allowed any time, with the valley-detour penalty
       const simple = routingOf(plan) !== 'flexible';
       const PIDX = Object.fromEntries(PATH.map((a, i) => [a, i]));
@@ -336,7 +341,7 @@
       }
       const nextZones = () => { const open = tour.filter(z => !WHO.every(k => stats[k].zones.has(z))); return new Set(open.slice(0, 2)); };
       const earlyHard = plan.format === '24' && !!plan.earlyHard; // harder climbs only in the first 12 hours
-      const coreFirst = plan.coreFirst !== false && !['full', 'golden'].some(g => goalsOf(plan).includes(g)) && !(plan.startWalls || []).length;
+      const coreFirst = coreOn(plan);
       const H = plan.horizon ?? 45; // minutes of climbing used to judge a wall
       let guard = 0;
       while (t < end - 0.08 && guard++ < 500) {
@@ -427,6 +432,8 @@
           const isF = !!allowed;
           const w = walkMin(area, a, plan);
           if (t + (w + 5) / 60 > end) continue;
+          // core first: the first wall of a fresh plan is a North Forty wall (only the last-resort pass may start elsewhere)
+          if (coreFirst && mode < 2 && !items.some(it => it.rid) && rs[0].side !== 'North') continue;
           const g = GRP[a]; let pen = 0, back = false;
           if (isF) { if (g && curG && g !== curG) pen += CROSS_PEN[0]; }
           else if (g && curG && g !== curG) {
@@ -463,7 +470,7 @@
           if (sp === 'shade' && rs[0].side === 'East' && hh >= 12 && pre.lt === 'day') { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 0.4 : st === 'partial' ? 0.65 : 0.9; }
           else if (sp === 'sun' && pre.lt === 'day') { const st = sunAt(plan, rs[0], t + w / 60); sunF = st === 'sun' ? 1 : st === 'partial' ? 0.85 : st === 'shade' ? 0.65 : 0.8; }
           // what the top teams do: the dense North Forty core first, while fresh; the ends and the East side later
-          if (coreFirst && t - plan.start < CORE_H[plan.format] && rs[0].side !== 'North') sunF *= 0.75;
+          if (coreFirst && t - plan.start < CORE_H[plan.format] && rs[0].side !== 'North') sunF *= 0.6;
           const opts = []; for (const r of rs) { const e = evalRoute(r, t + w / 60); if (e && t + (w + e.mins) / 60 <= end && !(strict && plan.together !== false && e.who.length < WHO.length)) opts.push(e); }
           if (!opts.length) continue;
           opts.sort((x, y) => y.v / y.mins - x.v / x.mins);
@@ -586,7 +593,7 @@
       // pick the path shape first: the one that reaches the goals with the least walking
       if (rt === 'simple' && !(plan.startWalls || []).length) {
         let bestMode = null, bestScore = Infinity;
-        for (const m of PATH_MODES) {
+        for (const m of coreOn(plan) ? CORE_MODES : PATH_MODES) {
           plan.pathMode = m; plan.bufF = 1;
           for (const pf of fixed ? [fixed] : [1, 0.6]) { plan.paceF = pf; optimize(plan, 0); if (meets(plan)) break; }
           const tl = timeline(plan, plan.items); let w = 0; for (const r of tl.rows) if (r.kind === 'walk') w += (r.t1 - r.t0) * 60;
