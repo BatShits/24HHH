@@ -587,15 +587,16 @@
     const routingOf = plan => plan.routing === 'simple' || plan.routing === 'flexible' ? plan.routing : (plan.routeUsed || 'simple');
     function buildWith(plan, rt) {
       plan.routeUsed = rt;
-      // Death Incarnate never plans slower than Bring it On!'s steady pace, however easy the goals
-      let lo = 0.3, hi = plan.intensity === 'aggressive' ? FIXED_PACE.standard[plan.format] : 3, bestItems = null;
+      // Death Incarnate finds the slowest steady pace that still meets the goals with the buffer, so a lower target means a
+      // gentler pace (not a bigger buffer): the plan shows what the goal actually demands
+      let lo = 0.3, hi = 3, bestItems = null;
       const fixed = fixedPace(plan);
       // pick the path shape first: the one that reaches the goals with the least walking
       if (rt === 'simple' && !(plan.startWalls || []).length) {
         let bestMode = null, bestScore = Infinity;
         for (const m of coreOn(plan) ? CORE_MODES : PATH_MODES) {
           plan.pathMode = m; plan.bufF = 1;
-          for (const pf of fixed ? [fixed] : [1, 0.6]) { plan.paceF = pf; optimize(plan, 0); if (meets(plan)) break; }
+          for (const pf of fixed ? [fixed] : [1.2, 0.8, 0.6, 0.45]) { plan.paceF = pf; optimize(plan, 0); if (meets(plan)) break; }
           const tl = timeline(plan, plan.items); let w = 0; for (const r of tl.rows) if (r.kind === 'walk') w += (r.t1 - r.t0) * 60;
           const sc = (meets(plan) ? 0 : 1e5) - (meets(plan) ? plan.paceF * 300 : 0) + w; // meets first, then the gentlest pace, then least walking
           if (sc < bestScore) { bestScore = sc; bestMode = m; }
