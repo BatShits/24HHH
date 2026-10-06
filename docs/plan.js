@@ -640,7 +640,6 @@
       const P = push(plan), F = FORMATS[plan.format], c = climber(plan, 'me'), I = INTENSITY[plan.intensity] || INTENSITY.standard;
       const tbl = el('table', 'sumtable pacing'); const h = el('tr'); const th = el('th', null, 'Pacing'); th.colSpan = 2; h.appendChild(th); tbl.appendChild(h);
       const row = (k, v, title) => { const tr = el('tr'); tr.append(el('th', null, k), el('td', null, v)); if (title) tr.title = title; tbl.appendChild(tr); };
-      const pf = plan.manual ? (MANUAL_PACE[plan.intensity] || 1) : (plan.paceF || 1), ref = FIXED_PACE.standard[plan.format] || 0.6;
       if (plan.intensity === 'aggressive' && !plan.manual && plan.effortX != null) {
         const x = plan.effortX;
         row('Effort', x <= 0.005 ? (x < -0.005 ? `Bring it On!'s settings, climbing eased off: this target doesn't need more` : `Bring it On!'s settings`) : `${Math.round(x * 100)}% of the way from Bring it On! to all-out`,
@@ -648,11 +647,10 @@
       }
       const night = plan.start + (plan.format === '24' ? 17 : F.dur - 0.5), refR = { gu: c.os - 2, ht: 60, type: 'sport' };
       const fresh = leadMin(plan, refR, c, plan.start, { lt: 'day' }), late = leadMin(plan, refR, c, night, { lt: light(plan, night) });
-      row('Climbing', `Lead time x${pf.toFixed(2)} (Bring it On! x${ref.toFixed(2)}; lower is faster). 60 ft, two grades under onsight: ${fresh.toFixed(1)} min fresh, ${late.toFixed(1)} min ${fmtAbs(plan, night, true)}.`,
-        'Lead time covers tying in, climbing, clipping and lowering. 1.00 is the base model; fatigue and the dark add to it.');
+      row('Climbing', `60 ft cruiser (two grades under onsight): ${fresh.toFixed(1)} min fresh, ${late.toFixed(1)} min ${fmtAbs(plan, night, true)}`,
+        'One lead: tying in, climbing, clipping and lowering. Fatigue and the dark add to it later in the event.');
       const laps = tl.rows.filter(r => r.kind === 'route').length;
       if (laps) row('Per route', `${(climbM / laps).toFixed(1)} min average for the pair (both leads + changeover)`);
-      row('Changeover', `${P.change.toFixed(1)} min per route (pull, swap ends, tie in)`);
       row('Walking', `${Math.round(P.walk)} m/min (about ${(P.walk * 60 / 1609.34).toFixed(1)} mph) plus ${P.walkPrep.toFixed(1)} min to pack up at each move`);
       const bm = breakMin(plan); row('Breaks', bm ? `${bm} min every hour (about ${(bm * F.dur / 60).toFixed(1)} h in all)` : 'None');
       row('Slowdown', plan.fatigue === false ? 'Off (only 10% slower in the dark)' : `+${((FATIGUE[plan.format] ?? 0.01) * P.slow * 100).toFixed(1)}% lead time per hour into the event, +${((DARK_SLOW - 1) * P.slow * 100).toFixed(1)}% in the dark`);
