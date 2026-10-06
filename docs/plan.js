@@ -647,7 +647,7 @@
       }
       const night = plan.start + (plan.format === '24' ? 17 : F.dur - 0.5), refR = { gu: c.os - 2, ht: 60, type: 'sport' };
       const fresh = leadMin(plan, refR, c, plan.start, { lt: 'day' }), late = leadMin(plan, refR, c, night, { lt: light(plan, night) });
-      row('Climbing', `60 ft cruiser (two grades under onsight): ${fresh.toFixed(1)} min fresh, ${late.toFixed(1)} min ${fmtAbs(plan, night, true)}`,
+      row('Climbing', `60 ft cruiser (onsight - 2): ${fresh.toFixed(1)} min fresh, ${late.toFixed(1)} min ${fmtAbs(plan, night, true)}`,
         'One lead: tying in, climbing, clipping and lowering. Fatigue and the dark add to it later in the event.');
       const laps = tl.rows.filter(r => r.kind === 'route').length;
       if (laps) row('Per route', `${(climbM / laps).toFixed(1)} min average for the pair (both leads + changeover)`);
