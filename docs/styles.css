@@ -505,3 +505,23 @@ a.button { color: inherit; text-decoration: none; }
 .toggle input[role=switch]:checked::after { left: 21px; }
 .toggle input[role=switch]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .setup-go { margin-top: 14px; }
+/* opening screen: the demon wakes up (demon.js) */
+#splash { position: fixed; inset: 0; z-index: 9999; background: #171211; display: flex; align-items: center; justify-content: center; transition: opacity .35s; cursor: pointer; }
+#splash.out { opacity: 0; pointer-events: none; }
+#splash .sp-stage { display: flex; flex-direction: column; align-items: center; gap: 6px; animation: sp-in .35s ease-out both; }
+#splash .sp-title { margin-top: 22px; color: #F3E9DC; font: 700 28px/1.1 Georgia, "Times New Roman", serif; letter-spacing: .08em; }
+#splash .sp-sub { color: #F2A541; font: 15px/1.2 Georgia, "Times New Roman", serif; letter-spacing: .3em; }
+#splash .sp-title, #splash .sp-sub { animation: sp-eyes 3.4s ease-out both; }
+#splash .dm-lamp { animation: sp-lamp 3.4s linear both; }
+#splash .dm-glow { animation: sp-glow 3.4s linear both; }
+#splash .dm-eyes { animation: sp-eyes 3.4s ease-out both; }
+#splash .dm-open { animation: sp-open 3.4s steps(1, end) both; }
+#splash .dm-closed { animation: sp-closed 3.4s steps(1, end) both; }
+#splash.calm .dm-open { display: none; }
+#splash.calm .sp-title, #splash.calm .sp-sub { animation: none; }
+@keyframes sp-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
+@keyframes sp-lamp { 0%, 12% { opacity: 0; } 13% { opacity: 1; } 15% { opacity: 0; } 19% { opacity: 1; } 21% { opacity: .15; } 22% { opacity: 0; } 27%, 100% { opacity: 1; } }
+@keyframes sp-glow { 0%, 27% { opacity: 0; } 33%, 100% { opacity: .35; } }
+@keyframes sp-eyes { 0%, 32% { opacity: 0; } 44%, 100% { opacity: 1; } }
+@keyframes sp-open { 0% { opacity: 0; } 53% { opacity: 1; } 79%, 100% { opacity: 0; } }
+@keyframes sp-closed { 0% { opacity: 1; } 53% { opacity: 0; } 79%, 100% { opacity: 1; } }
