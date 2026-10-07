@@ -35,7 +35,7 @@
   const PATH_MODES = ['loopW', 'loopE', 'uE', 'uW'];
   const CORE_MODES = ['coreW', 'uW']; // path shapes that start in the North Forty core (both head West first)
   // "Start in the North Forty core": on unless turned off; coverage goals and chosen start walls decide the start themselves
-  const coreOn = plan => plan.coreFirst !== false && !['full', 'golden'].some(g => (plan.goals || (plan.goal ? [plan.goal] : [])).includes(g)) && !(plan.startWalls || []).length;
+  const coreOn = plan => plan.coreFirst !== false && !['full', 'golden'].some(g => (plan.goals || (plan.goal ? [plan.goal] : [])).includes(g)) && !(plan.startWalls || []).length && plan.sideOnly !== 'E';
   const PATH_WINDOW = 2; // how many climbable walls ahead the planner may pick from
   const IDLE_LABEL = 'Nothing left that fits your settings';
   const MANUAL_PACE = { conservative: 1.2, standard: 1, aggressive: 0.85 }; // lead-time multiplier for hand-built plans
@@ -61,6 +61,16 @@
     // used them, so the planner leaves them out. They stay in the Routes tab.
     const NO_PLAN_AREAS = new Set(['The Park', 'The Carrion Cube']);
     const comp = () => ROUTES().filter(r => r.n && !NO_PLAN_AREAS.has(r.area));
+    const sideOf = a => (comp().find(r => r.area === a) || {}).side || 'Valley';
+    // route type (plan.routeType: undefined both / 'sport' / 'trad'; old plan.noTrad = sport only) and side of the canyon (plan.sideOnly 'E'/'W', West includes North)
+    const routeTypeOf = plan => plan.routeType || (plan.noTrad ? 'sport' : 'both');
+    function planFits(plan, r) {
+      const t = routeTypeOf(plan);
+      if (t === 'sport' && r.type === 'trad') return false;
+      if (t === 'trad' && r.type !== 'trad') return false;
+      if (plan.sideOnly && sideGroup(r.side) !== plan.sideOnly) return false;
+      return true;
+    }
 
     // ---------- storage ----------
     let state = store.get('hhh.plans', null);
@@ -291,7 +301,7 @@
       const clock = tl.clock;
       const cl = Object.fromEntries(WHO.map(k => [k, climber(plan, k)]));
       const I = INTENSITY[plan.intensity] || INTENSITY.standard;
-      const pool = comp().filter(r => r.gu != null || r.g === 'Easy 5th');
+      const pool = comp().filter(r => (r.gu != null || r.g === 'Easy 5th') && planFits(plan, r));
       const gls = goalsOf(plan).map(g => g === 'qualify' ? 'full' : g);
       const goal = gls.includes('golden') ? 'golden' : gls.includes('full') ? 'full' : gls[0]; // the coverage goal (if any) drives the zone tour
       const numGoals = gls.filter(g => UNIT[g]).map(g => [g, targetOf(plan, g)]);
@@ -382,7 +392,6 @@
             const bucket = GU2(gradeLabel(r.gu, r.g));
             // separate grade ranges: sport (and mixed) use gmin/gmax, trad uses tmin/tradMax
             const isTrad = r.type === 'trad', lo = isTrad ? plan.tmin : plan.gmin, hi = isTrad ? plan.tradMax : plan.gmax;
-            if (isTrad && plan.noTrad) continue;
             if (lo && bucket < GU2(lo)) continue;
             if (hi && bucket > GU2(hi)) continue;
             if (plan.darkMax && pre.lt !== 'day' && bucket > GU2(plan.darkMax)) continue;
@@ -947,7 +956,16 @@
       }
       return box;
     }
+    // one choice out of a few: a joined segmented control
+    const segRow = (opts, val, onPick) => { const s = chipRow(opts, val, onPick); s.classList.add('seg'); return s; };
     function field(label, node, hint) { const f = el('div', 'pfield'); f.append(el('span', 'plabel', label), node); if (hint) f.appendChild(el('span', 'hint small', hint)); return f; }
+    // on/off setting: label (and a short note) on the left, a switch on the right
+    function toggle(label, on, onChange, hint) {
+      const l = el('label', 'toggle'), t = el('span', 'tg-text'); t.appendChild(el('span', 'tg-label', label)); if (hint) t.appendChild(el('span', 'hint small', hint));
+      const c = el('input'); c.type = 'checkbox'; c.setAttribute('role', 'switch'); c.checked = !!on; c.onchange = () => onChange(c.checked);
+      l.append(t, c); return l;
+    }
+    const secOpen = {}; // plan id -> { section key: open? }
 
     function renderSetup(body, plan) {
       // stays as the user left it across re-renders; collapses only after a (re)build
@@ -955,108 +973,145 @@
       d.addEventListener('toggle', () => { setupOpen[plan.id] = d.open; });
       d.appendChild(el('summary', null, `${FORMATS[plan.format].label}, ` + (goalsOf(plan).length ? `optimizing for ${goalText(plan)}` : 'no goals picked yet')));
       const upd = fn => () => { fn(); save(); render(); };
-      const name = el('input'); name.type = 'text'; name.value = plan.name; name.onchange = () => { plan.name = name.value.trim() || plan.name; save(); render(); };
-      d.appendChild(field('Plan name', name));
-      d.appendChild(field('Event', chipRow([['24', '24-hour'], ['12', '12-hour']], plan.format, v => upd(() => { plan.format = v; plan.date = defaultDate(v); plan.start = FORMATS[v].startHour; plan.items = []; })())));
-      const date = el('input'); date.type = 'date'; date.value = plan.date; date.onchange = () => { if (date.value) { plan.date = date.value; save(); render(); } };
-      d.appendChild(field('Start date', date, `Runs ${[plan.start, plan.start + FORMATS[plan.format].dur].map(h => { const x = dh(plan, h); return x.wd + ' ' + Sun.fmt(x.hour); }).join(' to ')} (fixed by the rules). Defaults to the last full weekend of September.`));
-      const sel = goalsOf(plan);
-      const g = chipRow(Object.entries(GOALS).map(([k, v]) => [k, v.replace(/ \(.*\)/, '')]), Object.fromEntries(sel.map(k => [k, true])), v => upd(() => {
-        let n = sel.includes(v) ? sel.filter(x => x !== v) : [...sel, v];
-        plan.goals = n; plan.goal = n[0];
-      })(), false);
-      const F = FORMATS[plan.format];
-      const gHint = { score: `Favors soft, shaded, high-point routes. ${F.pts.qualify.toLocaleString()} points (bonuses included) qualifies for next year.`, laps: `Fastest routes you can lead cleanly. ${F.laps.qualify} laps qualifies for next year.`, trad: `Trad leads count toward this. ${F.trad.qualify} trad laps qualifies for next year.`, height: F.ft ? `Favors tall routes. ${F.ft.toLocaleString()} ft also qualifies for next year.` : 'Favors tall routes.',
-        full: `${F.laps.full} routes, ${plan.format === '24' ? 'all 24' : '12'} zones, and one end route at each end of the horseshoe (west: Hickadelic Jazzgrass, Meatcake, Catholic Boat, Elephant Ear or Wuwei; east: Orange Crush, Montezuma's Toe or Revenge, Purple Nehi or Supersoul Sureshot).`, golden: `${F.laps.golden} routes, ${F.trad.golden} trad, ${F.pts.golden.toLocaleString()} points and Full Horseshoe.`,
-        qualify: 'Plans for the Full Horseshoe, the cheapest qualifying path for most teams.' };
-      d.appendChild(field('Optimize for', g, (sel.length > 1 ? 'Pick as many as you like; the plan has to hit all of them. ' : sel.length ? 'Pick one or more. ' : 'Nothing picked yet. Pick one or more goals to get a recommended plan, or build it yourself below.') + sel.map(k => gHint[k]).join(' ')));
-      const tbox = el('div', 'targets');
-      for (const k of sel.filter(k => UNIT[k])) {
-        const ti = el('input'); ti.type = 'number'; ti.inputMode = 'numeric'; ti.min = 1; ti.step = k === 'laps' || k === 'trad' ? 1 : 100; ti.value = targetOf(plan, k); ti.setAttribute('aria-label', GOALS[k]);
-        ti.onchange = () => { plan.targets = plan.targets || {}; plan.targets[k] = Math.max(1, Math.round(+ti.value || 0)); save(); render(); };
-        const row = el('div', 'target-row'); row.append(ti, el('span', null, UNIT[k] + ' per climber')); tbox.appendChild(row);
-      }
-      if (tbox.childNodes.length) d.appendChild(field(tbox.childNodes.length > 1 ? 'Targets' : 'Target', tbox));
-      const L = lapTarget(plan);
-      const paceTxt = L ? `${(L / F.dur).toFixed(1)} laps per hour per climber (${L} laps over ${F.dur} hours).` : 'Calculated once the plan is built, from the laps it takes to reach your target.';
-      d.appendChild(field('Required pace', el('p', 'pace-calc', paceTxt), L ? 'Average over the whole event, including walking, check-ins and breaks.' : null));
-      d.appendChild(field('Also aim for', chipRow([['east', 'East Side bonus'], ['over60', 'Routes over 60 ft'], ['soft', 'Prefer soft-for-grade']], plan.side, v => upd(() => { plan.side[v] = !plan.side[v]; })(), false)));
-      // divisions
-      const dv = el('div', 'divs');
-      for (const k of WHO) {
-        const p = profiles[k] || {}; const s = el('select');
-        for (const [dk, dd] of Object.entries(DIVS)) { if (dk === 'rec' && plan.format === '24') continue; s.add(new Option(dd.label, dk)); }
-        const def = defaultDiv(p, plan.format); s.value = (plan.divs && plan.divs[k]) || def;
-        s.onchange = () => { plan.divs = plan.divs || {}; plan.divs[k] = s.value === def ? undefined : s.value; save(); render(); };
-        dv.appendChild(field(`${p.name || (k === 'me' ? 'You' : 'Partner')} division`, s, p.project ? `Default from project grade ${p.project}.` : 'Set a project grade in Climber Setup to default this.'));
-      }
-      d.appendChild(dv);
-      // grade range and warm-up
-      const gradeList = [...new Set(comp().map(r => gradeLabel(r.gu, r.g)))].filter(L => L !== '?' && L !== '5th').sort((a, b) => GU2(a) - GU2(b));
-      const gSel = (val, none, onPick, aria) => { const s = el('select'); s.setAttribute('aria-label', aria); s.add(new Option(none, '')); for (const L of gradeList) s.add(new Option(L, L)); s.value = val || ''; s.onchange = () => { onPick(s.value || undefined); save(); render(); }; return s; };
-      const rg = el('div', 'target-row');
-      rg.append(gSel(plan.gmin, 'Lowest: any', v => { plan.gmin = v; }, 'Lowest sport grade'), el('span', null, 'to'), gSel(plan.gmax, 'Highest: any', v => { plan.gmax = v; }, 'Highest sport grade'));
-      d.appendChild(field('Sport grade range', rg));
-      const tk = el('div', 'target-row');
-      const nt = el('label', 'checkline'); const ntc = el('input'); ntc.type = 'checkbox'; ntc.checked = !!plan.noTrad;
-      ntc.onchange = () => { plan.noTrad = ntc.checked || undefined; save(); render(); };
-      nt.append(ntc, el('span', null, 'No trad'));
-      tk.append(nt);
-      if (!plan.noTrad) tk.append(gSel(plan.tmin, 'Lowest: any', v => { plan.tmin = v; }, 'Lowest trad grade'), el('span', null, 'to'), gSel(plan.tradMax, 'Highest: any', v => { plan.tradMax = v; }, 'Highest trad grade'));
-      const tradGoal = goalsOf(plan).filter(g => g === 'trad' || g === 'golden');
-      d.appendChild(field('Trad grade range', tk, plan.noTrad ? (tradGoal.length ? `No trad is on, but ${tradGoal.map(g => GOALS[g].replace(/ \(.*\)/, '')).join(' and ')} needs trad laps, so that goal can't be met.` : 'Trad routes are left out of the plan. Mixed routes still count as sport.') : 'Only routes in these ranges get planned; division and push level can still cap the top.'));
-      const dk = el('div', 'target-row'); dk.append(gSel(plan.darkMax, 'No limit', v => { plan.darkMax = v; }, 'Hardest grade after dark'));
-      const dl = Sun.daylight(plan.date);
-      d.appendChild(field('Hardest grade after dark', dk, plan.darkMax ? `From dusk (about ${Sun.fmt(dl.set)}) until it's light again (about ${Sun.fmt(dl.rise)}), nothing harder than ${plan.darkMax}; harder routes get pulled into daylight.` : 'Optional. Caps the grade for climbing in the dark.'));
-      const wu = el('div', 'target-row'); const wn = el('input'); wn.type = 'number'; wn.min = 1; wn.max = 20; wn.inputMode = 'numeric'; wn.value = plan.warmN ?? 3; wn.setAttribute('aria-label', 'Number of warm-up routes');
-      wn.onchange = () => { plan.warmN = Math.max(1, Math.min(20, Math.round(+wn.value || 3))); save(); render(); };
-      const wsel = gSel(plan.warm, 'No warm-up', v => { plan.warm = v; }, 'Warm-up grade'); wsel.style.flex = '1 1 100%';
-      wu.classList.add('wrap'); wu.append(wsel, el('span', null, 'or easier for the first'), wn, el('span', null, 'routes'));
-      d.appendChild(field('Warm-up', wu, plan.warm ? `Each of you starts with ${plan.warmN ?? 3} routes at ${plan.warm} or easier.` : 'Pick a grade to start the plan with easier routes.'));
-      d.appendChild(field('How hard to push', chipRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; plan.breakMin = undefined; plan.effort = plan.effortX = undefined; })()),
-        { conservative: 'An easy, steady day: slower leads and changeovers, an easy walk, 10-minute breaks, at or below onsight with one harder lap per hour. Plans at that pace and tells you what it reaches; expect to just qualify for next year.', standard: 'A strong, steady push like the top 2026 Intermediates: up to one grade over onsight early, easing off overnight, two harder laps per hour, quick changeovers and a fast walk. Plans at that pace and tells you what it reaches.', aggressive: 'Going for the win: plans the least effort your goals need, from Bring it On!\'s settings up to all-out (no breaks, the fastest changeovers, a jog between walls, faster leads). The Pacing table shows what your target takes. Fatigue and the night still slow you. Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
-      const I = INTENSITY[plan.intensity] || INTENSITY.standard;
-      const bi = el('input'); bi.type = 'number'; bi.inputMode = 'numeric'; bi.min = 0; bi.max = 30; bi.value = breakMin(plan);
-      bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = plan.intensity === 'aggressive' ? (bi.value === '' ? undefined : v) : v === I.breaks ? undefined : v; save(); render(); };
-      const brow = el('div', 'target-row'); brow.append(bi, el('span', null, 'minutes per hour'));
-      d.appendChild(field('Breaks', brow, `${plan.intensity === 'aggressive' ? 'Death Incarnate scales from 5 to 0 min per hour with the target unless you set it here.' : `Suggested for ${I.label} ${I.breaks} min per hour.`} Taken as one break each hour.${plan.intensity === 'aggressive' ? ' Clear the box to let it scale again.' : ''} Walking between walls is ${plan.intensity === 'aggressive' ? 'from a fast walk up to a steady jog, with the target' : I.walkName}.`));
-      const sp0 = sunPref(plan);
-      const rt0 = plan.routing === 'simple' || plan.routing === 'flexible' ? plan.routing : 'auto';
-      d.appendChild(field('Routing', chipRow([['auto', 'Best of both'], ['simple', 'Simple path'], ['flexible', 'Flexible']], rt0,
-        v => upd(() => { plan.routing = v === 'auto' ? undefined : v; })()),
-        { auto: 'Builds a simple path and a flexible plan and keeps whichever meets the goals with more buffer, an easier pace, or less walking.' + ((plan.items || []).length && !plan.manual && plan.routeUsed ? ` This plan uses ${plan.routeUsed === 'flexible' ? 'flexible routing' : 'the simple path'}.` : ''),
-          simple: 'One clean pass round the horseshoe with no doubling back. Least walking, but a route you need may not come up at the right time.',
-          flexible: 'May turn back for a route that fits better (harder routes in daylight, warm-ups, grade limits). A little more walking, often an easier pace.' }[rt0]));
-      d.appendChild(field('Sun or shade', chipRow([['shade', 'I prefer to climb in the shade'], ['sun', 'I prefer to climb in direct sun'], ['none', 'No preference']], sp0,
-        v => upd(() => { plan.sunPref = v; })()), { sun: 'Favors walls in direct sun whenever it\'s light out.', shade: 'Keeps you off the sunny East side in the afternoon. The West and North walls are under tree cover, so they stay fair game.', none: 'Sun and shade don\'t affect the plan.' }[sp0] || ''));
-      // starting walls, in order
-      const sw = el('div', 'startwalls'); const list = (plan.startWalls ||= []);
-      list.forEach((a, i) => { const c = el('button', 'chip-x', `${i + 1}. ${a.replace(/^The /, '')} ×`); c.type = 'button'; c.setAttribute('aria-label', 'Remove ' + a); c.onclick = upd(() => list.splice(i, 1)); sw.appendChild(c); });
-      const addSel = el('select'); addSel.add(new Option(list.length ? 'Then…' : 'Add a wall…', ''));
-      const wallsAll = [...new Set(comp().map(r => r.area))].filter(a => !list.includes(a) && AREAS()[a]);
-      const sideOrder = { West: 0, North: 1, East: 2, Valley: 3 };
-      const sideOf = a => (comp().find(r => r.area === a) || {}).side || 'Valley';
-      wallsAll.sort((x, y) => (sideOrder[sideOf(x)] - sideOrder[sideOf(y)]) || ((linePos(AREAS()[x]) ?? 0) - (linePos(AREAS()[y]) ?? 0)));
-      let og = null, lastSide = null;
-      for (const a of wallsAll) { const sd = sideOf(a); if (sd !== lastSide) { og = document.createElement('optgroup'); og.label = sd === 'Valley' ? 'Valley floor' : sd + ' side'; addSel.appendChild(og); lastSide = sd; } og.appendChild(new Option(a, a)); }
-      addSel.onchange = () => { if (addSel.value) { list.push(addSel.value); save(); render(); } };
-      sw.appendChild(addSel);
-      d.appendChild(field('Start at', sw, list.length ? 'The plan starts at these walls in this order, staying at each until moving on pays off, then plans the rest itself.' : 'Optional. Pick walls to start with, in order; the planner takes it from there.'));
-      d.appendChild(field('Options', chipRow([['together', 'Same routes for both'], ['reach', 'Skip routes too reachy'], ['coreFirst', 'Start in the North Forty core'], ['fatigue', 'Slow down at night']], { together: plan.together !== false, reach: plan.reach !== false, coreFirst: plan.coreFirst !== false, fatigue: plan.fatigue !== false },
-        v => upd(() => { plan[v] = plan[v] === false; })(), false)));
-      if (plan.fatigue !== false) d.appendChild(el('p', 'hint small', (k => `At ${(INTENSITY[plan.intensity] || INTENSITY.standard).label}, leads take about ${((FATIGUE[plan.format] ?? 0.01) * k * 100).toFixed(1)}% longer for each hour into the event and ${Math.round((DARK_SLOW - 1) * k * 100)}% longer in the dark. Bring it On! matches the timed logs of 26 top 2025–2026 climbers; Death Incarnate slows between that and three-quarters as much (it scales with the target), Don't Hurt Me twice as much.`)(push(plan).slow)));
-      { const li = el('input'); li.type = 'number'; li.inputMode = 'numeric'; li.min = 0; li.max = 180; li.value = lineMin(plan);
+      const F = FORMATS[plan.format], sel = goalsOf(plan), I = INTENSITY[plan.intensity] || INTENSITY.standard;
+      const so = (secOpen[plan.id] ||= {});
+      // collapsible section with a one-line summary of what's set
+      const section = (key, title, sum, openByDefault) => {
+        const s = el('details', 'psec'); s.open = so[key] ?? openByDefault;
+        s.addEventListener('toggle', () => { so[key] = s.open; });
+        const h = el('summary'); h.append(el('span', 'psec-title', title), el('span', 'psum', sum)); s.appendChild(h);
+        const inner = el('div', 'psec-body'); s.appendChild(inner); d.appendChild(s); return inner;
+      };
+      const fresh = !plan.items.length;
+      const rtype = routeTypeOf(plan), side = plan.sideOnly || '';
+      const nm = k => (climber(plan, k).name);
+
+      // ---- Event ----
+      { const dd = dh(plan, plan.start);
+        const b = section('event', 'Event', `${F.label} · ${dd.wd} ${plan.date.slice(5).replace('-', '/')}`, false);
+        const name = el('input'); name.type = 'text'; name.value = plan.name; name.onchange = () => { plan.name = name.value.trim() || plan.name; save(); render(); };
+        b.appendChild(field('Plan name', name));
+        b.appendChild(field('Format', segRow([['24', '24-hour'], ['12', '12-hour']], plan.format, v => upd(() => { plan.format = v; plan.date = defaultDate(v); plan.start = FORMATS[v].startHour; plan.items = []; })())));
+        const date = el('input'); date.type = 'date'; date.value = plan.date; date.onchange = () => { if (date.value) { plan.date = date.value; save(); render(); } };
+        b.appendChild(field('Start date', date, `Runs ${[plan.start, plan.start + F.dur].map(h => { const x = dh(plan, h); return x.wd + ' ' + Sun.fmt(x.hour); }).join(' to ')} (fixed by the rules).`)); }
+
+      // ---- Goals ----
+      { const sum = sel.length ? sel.map(k => GOALS[k].replace(/ \(.*\)/, '') + (targetOf(plan, k) ? ' ' + targetOf(plan, k).toLocaleString() : '')).join(' + ') : 'none yet';
+        const b = section('goals', 'Goals', sum, fresh || !sel.length);
+        const g = chipRow(Object.entries(GOALS).map(([k, v]) => [k, v.replace(/ \(.*\)/, '')]), Object.fromEntries(sel.map(k => [k, true])), v => upd(() => {
+          const n = sel.includes(v) ? sel.filter(x => x !== v) : [...sel, v]; plan.goals = n; plan.goal = n[0];
+        })(), false);
+        const gHint = { score: `Favors soft, shaded, high-point routes. ${F.pts.qualify.toLocaleString()} points (bonuses included) qualifies for next year.`, laps: `Fastest routes you can lead cleanly. ${F.laps.qualify} laps qualifies for next year.`, trad: `Trad leads count toward this. ${F.trad.qualify} trad laps qualifies for next year.`, height: F.ft ? `Favors tall routes. ${F.ft.toLocaleString()} ft also qualifies for next year.` : 'Favors tall routes.',
+          full: `${F.laps.full} routes, ${plan.format === '24' ? 'all 24' : '12'} zones, and one end route at each end of the horseshoe (west: Hickadelic Jazzgrass, Meatcake, Catholic Boat, Elephant Ear or Wuwei; east: Orange Crush, Montezuma's Toe or Revenge, Purple Nehi or Supersoul Sureshot).`, golden: `${F.laps.golden} routes, ${F.trad.golden} trad, ${F.pts.golden.toLocaleString()} points and Full Horseshoe.`,
+          qualify: 'Plans for the Full Horseshoe, the cheapest qualifying path for most teams.' };
+        b.appendChild(field('Optimize for', g, (sel.length ? 'The plan has to hit all of them. ' : 'Pick one or more to get a recommended plan, or build it yourself below.') + sel.map(k => gHint[k]).join(' ')));
+        const tbox = el('div', 'targets');
+        for (const k of sel.filter(k => UNIT[k])) {
+          const ti = el('input'); ti.type = 'number'; ti.inputMode = 'numeric'; ti.min = 1; ti.step = k === 'laps' || k === 'trad' ? 1 : 100; ti.value = targetOf(plan, k); ti.setAttribute('aria-label', GOALS[k]);
+          ti.onchange = () => { plan.targets = plan.targets || {}; plan.targets[k] = Math.max(1, Math.round(+ti.value || 0)); save(); render(); };
+          const row = el('div', 'target-row'); row.append(ti, el('span', null, UNIT[k] + ' per climber')); tbox.appendChild(row);
+        }
+        if (tbox.childNodes.length) b.appendChild(field(tbox.childNodes.length > 1 ? 'Targets' : 'Target', tbox));
+        const L = lapTarget(plan);
+        if (L) b.appendChild(field('Required pace', el('p', 'pace-calc', `${(L / F.dur).toFixed(1)} laps per hour per climber (${L} laps over ${F.dur} hours)`), 'Averaged over the whole event, walking, check-ins and breaks included.'));
+        const tradNeed = sel.filter(g => g === 'trad' || g === 'golden'), bothEnds = sel.filter(g => g === 'full' || g === 'golden' || g === 'qualify');
+        const clash = [];
+        if (rtype === 'sport' && tradNeed.length) clash.push(`${tradNeed.map(g => GOALS[g].replace(/ \(.*\)/, '')).join(' and ')} needs trad laps, but Routes is set to sport only.`);
+        if (side && bothEnds.length) clash.push(`${bothEnds.map(g => GOALS[g].replace(/ \(.*\)/, '')).join(' and ')} needs both ends of the horseshoe, but Where is set to the ${side === 'E' ? 'East' : 'West'} side only.`);
+        if (clash.length) b.appendChild(el('p', 'warn', clash.join(' ') + ' That goal can\'t be met.'));
+        const bx = el('div', 'toggles');
+        bx.append(toggle('East Side bonus', plan.side.east, v => upd(() => { plan.side.east = v; })(), 'Counts the East Side bonus points when picking routes.'),
+          toggle('Routes over 60 ft', plan.side.over60, v => upd(() => { plan.side.over60 = v; })(), 'Leans toward tall routes.'));
+        b.appendChild(field('Also aim for', bx)); }
+
+      // ---- Pace ----
+      { const bm = breakMin(plan);
+        const b = section('pace', 'Push and pace', `${I.label} · ${plan.intensity === 'aggressive' && plan.breakMin == null ? 'breaks scale' : bm ? bm + ' min breaks' : 'no breaks'}${plan.fatigue === false ? ' · no slowdown' : ''}`, fresh);
+        b.appendChild(field('How hard to push', segRow(Object.entries(INTENSITY).map(([k, v]) => [k, v.label]), plan.intensity, v => upd(() => { plan.intensity = v; plan.breakMin = undefined; plan.effort = plan.effortX = undefined; })()),
+          { conservative: 'An easy, steady day: slower leads and changeovers, an easy walk, 10-minute breaks, at or below onsight with one harder lap per hour. Plans at that pace and tells you what it reaches; expect to just qualify.', standard: 'A strong, steady push like the top 2026 Intermediates: up to one grade over onsight early, easing off overnight, two harder laps per hour, quick changeovers and a fast walk. Plans at that pace and tells you what it reaches.', aggressive: 'Going for the win: plans the least effort your goals need, from Bring it On!\'s settings up to all-out (no breaks, fastest changeovers, a jog between walls, faster leads). Up to two grades over onsight early (capped at project grade); three harder laps per hour.' }[plan.intensity]));
+        const bi = el('input'); bi.type = 'number'; bi.inputMode = 'numeric'; bi.min = 0; bi.max = 30; bi.value = bm;
+        bi.onchange = () => { const v = Math.max(0, Math.min(30, Math.round(+bi.value || 0))); plan.breakMin = plan.intensity === 'aggressive' ? (bi.value === '' ? undefined : v) : v === I.breaks ? undefined : v; save(); render(); };
+        const brow = el('div', 'target-row'); brow.append(bi, el('span', null, 'min, once an hour'));
+        b.appendChild(field('Breaks', brow, plan.intensity === 'aggressive' ? (plan.breakMin == null ? 'Scales from 5 down to 0 with your target. Type a number to fix it.' : 'Fixed by you. Clear the box to let it scale with the target.') : `${I.label} suggests ${I.breaks} min.`));
+        b.appendChild(toggle('Slow down as the hours pile up', plan.fatigue !== false, v => upd(() => { plan.fatigue = v ? undefined : false; })(),
+          plan.fatigue !== false ? (k => `Leads take about ${((FATIGUE[plan.format] ?? 0.01) * k * 100).toFixed(1)}% longer per hour into the event and ${Math.round((DARK_SLOW - 1) * k * 100)}% longer in the dark, from timed logs of 26 top climbers.`)(push(plan).slow) : 'Off: only a flat 10% slower in the dark.'));
+        const li = el('input'); li.type = 'number'; li.inputMode = 'numeric'; li.min = 0; li.max = 180; li.value = lineMin(plan);
         li.onchange = () => { const v = Math.max(0, Math.min(180, Math.round(+li.value || 0))); plan.lineMin = v === LINE_DEFAULT[plan.format] ? undefined : v; save(); render(); };
-        const lr = el('div', 'target-row'); lr.append(li, el('span', null, 'minutes'));
-        d.appendChild(field('Line at the 5.8 end routes', lr, 'Optional. Adds a wait at Hickadelic Jazzgrass and the Montezuma routes (harder end routes get a sixth of it). Leave at 0 to rely on the goal buffer instead.')); }
-      if (plan.format === '24') {
-        const lab2 = el('label', 'checkline'); const cb2 = el('input'); cb2.type = 'checkbox'; cb2.checked = !!plan.earlyHard;
-        cb2.onchange = () => { plan.earlyHard = cb2.checked; save(); render(); };
-        lab2.append(cb2, el('span', null, 'Harder climbs in the first 12 hours only'));
-        d.appendChild(field('First half', lab2, `Routes at or above onsight only before ${Sun.fmt((plan.start + 12) % 24)}; the second half sticks to routes below onsight.`));
-      }
-      const missing = WHO.filter(k => !(profiles[k] || {}).onsight);
-      if (missing.length) d.appendChild(el('p', 'warn', 'Add onsight and project grades in Climber Setup for ' + missing.map(k => k === 'me' ? 'you' : 'your partner').join(' and ') + '. Until then the planner assumes a 5.9 onsight.'));
+        const lr = el('div', 'target-row'); lr.append(li, el('span', null, 'min'));
+        b.appendChild(field('Line at the 5.8 end routes', lr, 'Optional wait at Hickadelic Jazzgrass and Montezuma\'s. Leave at 0 to let the goal buffer cover it.')); }
+
+      // ---- Climbers ----
+      { const b = section('climbers', 'Climbers', WHO.map(k => `${nm(k)} ${DIVS[(plan.divs && plan.divs[k]) || defaultDiv(profiles[k] || {}, plan.format)].label.replace(/ \(.*\)/, '')}`).join(', ') + (plan.together !== false ? ' · same routes' : ''), false);
+        const dv = el('div', 'divs');
+        for (const k of WHO) {
+          const p = profiles[k] || {}; const s = el('select');
+          for (const [dk, ddv] of Object.entries(DIVS)) { if (dk === 'rec' && plan.format === '24') continue; s.add(new Option(ddv.label, dk)); }
+          const def = defaultDiv(p, plan.format); s.value = (plan.divs && plan.divs[k]) || def;
+          s.onchange = () => { plan.divs = plan.divs || {}; plan.divs[k] = s.value === def ? undefined : s.value; save(); render(); };
+          dv.appendChild(field(`${p.name || (k === 'me' ? 'You' : 'Partner')} division`, s, p.project ? `Default from project grade ${p.project}.` : 'Set a project grade in Climber Setup to default this.'));
+        }
+        b.appendChild(dv);
+        b.appendChild(toggle('Same routes for both', plan.together !== false, v => upd(() => { plan.together = v ? undefined : false; })(), 'Prefer routes you can both lead.'));
+        b.appendChild(toggle('Skip routes too reachy', plan.reach !== false, v => upd(() => { plan.reach = v ? undefined : false; })(), 'Uses height and ape index from Climber Setup.'));
+        const missing = WHO.filter(k => !(profiles[k] || {}).onsight);
+        if (missing.length) b.appendChild(el('p', 'warn', 'Add onsight and project grades in Climber Setup for ' + missing.map(k => k === 'me' ? 'you' : 'your partner').join(' and ') + '. Until then the planner assumes a 5.9 onsight.')); }
+
+      // ---- Routes ----
+      { const gradeList = [...new Set(comp().map(r => gradeLabel(r.gu, r.g)))].filter(L => L !== '?' && L !== '5th').sort((a, b) => GU2(a) - GU2(b));
+        const gSel = (val, none, onPick, aria) => { const s = el('select'); s.setAttribute('aria-label', aria); s.add(new Option(none, '')); for (const L of gradeList) s.add(new Option(L, L)); s.value = val || ''; s.onchange = () => { onPick(s.value || undefined); save(); render(); }; return s; };
+        const rng = (lo, hi) => lo || hi ? `${lo || 'any'}–${hi || 'any'}` : '';
+        const sumBits = [{ both: 'Sport + trad', sport: 'Sport only', trad: 'Trad only' }[rtype]];
+        if (rtype !== 'trad' && rng(plan.gmin, plan.gmax)) sumBits.push('sport ' + rng(plan.gmin, plan.gmax));
+        if (rtype !== 'sport' && rng(plan.tmin, plan.tradMax)) sumBits.push('trad ' + rng(plan.tmin, plan.tradMax));
+        if (plan.warm) sumBits.push(`warm-up ${plan.warm} ×${plan.warmN ?? 3}`);
+        if (plan.darkMax) sumBits.push(`dark ≤ ${plan.darkMax}`);
+        const b = section('routes', 'Routes', sumBits.join(' · '), false);
+        b.appendChild(field('Route type', segRow([['both', 'Sport + trad'], ['sport', 'Sport only'], ['trad', 'Trad only']], rtype, v => upd(() => { plan.routeType = v === 'both' ? undefined : v; delete plan.noTrad; })()),
+          { both: null, sport: 'Trad routes are left out. Mixed routes count as sport.', trad: 'Only trad routes get planned (mixed routes count as sport).' }[rtype]));
+        if (rtype !== 'trad') { const rg = el('div', 'target-row'); rg.append(gSel(plan.gmin, 'Lowest: any', v => { plan.gmin = v; }, 'Lowest sport grade'), el('span', null, 'to'), gSel(plan.gmax, 'Highest: any', v => { plan.gmax = v; }, 'Highest sport grade')); b.appendChild(field('Sport grades', rg)); }
+        if (rtype !== 'sport') { const tk = el('div', 'target-row'); tk.append(gSel(plan.tmin, 'Lowest: any', v => { plan.tmin = v; }, 'Lowest trad grade'), el('span', null, 'to'), gSel(plan.tradMax, 'Highest: any', v => { plan.tradMax = v; }, 'Highest trad grade')); b.appendChild(field('Trad grades', tk)); }
+        b.appendChild(el('p', 'hint small', 'Division and push level can still cap the top of a range.'));
+        const dk = el('div', 'target-row'); dk.append(gSel(plan.darkMax, 'No limit', v => { plan.darkMax = v; }, 'Hardest grade after dark'));
+        const dl = Sun.daylight(plan.date);
+        b.appendChild(field('Hardest grade after dark', dk, plan.darkMax ? `Dusk (about ${Sun.fmt(dl.set)}) to first light (about ${Sun.fmt(dl.rise)}); harder routes get pulled into daylight.` : null));
+        const wu = el('div', 'target-row wrap'); const wn = el('input'); wn.type = 'number'; wn.min = 1; wn.max = 20; wn.inputMode = 'numeric'; wn.value = plan.warmN ?? 3; wn.setAttribute('aria-label', 'Number of warm-up routes');
+        wn.onchange = () => { plan.warmN = Math.max(1, Math.min(20, Math.round(+wn.value || 3))); save(); render(); };
+        const wsel = gSel(plan.warm, 'No warm-up', v => { plan.warm = v; }, 'Warm-up grade'); wsel.style.flex = '1 1 100%';
+        wu.append(wsel); if (plan.warm) wu.append(el('span', null, 'or easier for the first'), wn, el('span', null, 'routes'));
+        b.appendChild(field('Warm-up', wu));
+        b.appendChild(toggle('Prefer soft-for-grade', plan.side.soft, v => upd(() => { plan.side.soft = v; })(), 'Routes Mountain Project calls soft score a bit higher; stiff ones are never planned at or above onsight.'));
+        if (plan.format === '24') b.appendChild(toggle('Harder climbs in the first 12 hours only', !!plan.earlyHard, v => upd(() => { plan.earlyHard = v || undefined; })(), `At or above onsight only before ${Sun.fmt((plan.start + 12) % 24)}.`)); }
+
+      // ---- Where ----
+      { const sp0 = sunPref(plan), rt0 = plan.routing === 'simple' || plan.routing === 'flexible' ? plan.routing : 'auto', list = (plan.startWalls ||= []);
+        const core = plan.coreFirst !== false && side !== 'E' && !list.length;
+        const sumBits = [{ '': 'Both sides', E: 'East side only', W: 'West side only' }[side]];
+        if (list.length) sumBits.push('start ' + list[0].replace(/^The /, '')); else if (core) sumBits.push('North Forty first');
+        sumBits.push({ shade: 'shade', sun: 'sun', none: 'any light' }[sp0]);
+        const b = section('where', 'Where', sumBits.join(' · '), false);
+        b.appendChild(field('Side of the canyon', segRow([['', 'Both sides'], ['E', 'East only'], ['W', 'West only']], side, v => upd(() => { plan.sideOnly = v || undefined; plan.startWalls = (plan.startWalls || []).filter(a => !v || sideGroup(sideOf(a)) === v); })()),
+          { '': 'Crosses the canyon at most once on the 12-hour, twice on the 24-hour.', E: 'Stays on the East side: no canyon crossing.', W: 'Stays on the West side, North Forty included: no canyon crossing.' }[side]));
+        if (side !== 'E') b.appendChild(toggle('Start in the North Forty core', plan.coreFirst !== false, v => upd(() => { plan.coreFirst = v ? undefined : false; })(),
+          list.length ? 'Off while you pick start walls below.' : sel.some(g => g === 'full' || g === 'golden') ? 'Ignored for Full and Golden Horseshoe: the zone tour sets the start.' : `First wall in the North Forty, favored for the first ${CORE_H[plan.format]} hours.`));
+        // starting walls, in order
+        const sw = el('div', 'startwalls');
+        list.forEach((a, i) => { const c = el('button', 'chip-x', `${i + 1}. ${a.replace(/^The /, '')} ×`); c.type = 'button'; c.setAttribute('aria-label', 'Remove ' + a); c.onclick = upd(() => list.splice(i, 1)); sw.appendChild(c); });
+        const addSel = el('select'); addSel.add(new Option(list.length ? 'Then…' : 'Add a wall…', ''));
+        const wallsAll = [...new Set(comp().map(r => r.area))].filter(a => !list.includes(a) && AREAS()[a] && (!side || sideGroup(sideOf(a)) === side));
+        const sideOrder = { West: 0, North: 1, East: 2, Valley: 3 };
+        wallsAll.sort((x, y) => (sideOrder[sideOf(x)] - sideOrder[sideOf(y)]) || ((linePos(AREAS()[x]) ?? 0) - (linePos(AREAS()[y]) ?? 0)));
+        let og = null, lastSide = null;
+        for (const a of wallsAll) { const sd = sideOf(a); if (sd !== lastSide) { og = document.createElement('optgroup'); og.label = sd === 'Valley' ? 'Valley floor' : sd + ' side'; addSel.appendChild(og); lastSide = sd; } og.appendChild(new Option(a, a)); }
+        addSel.onchange = () => { if (addSel.value) { list.push(addSel.value); save(); render(); } };
+        sw.appendChild(addSel);
+        b.appendChild(field('Start at', sw, list.length ? 'Starts at these walls in order, then plans the rest itself.' : 'Optional. Pick walls to start with, in order.'));
+        b.appendChild(field('Sun or shade', segRow([['shade', 'Shade'], ['sun', 'Sun'], ['none', 'Either']], sp0, v => upd(() => { plan.sunPref = v; })()),
+          { sun: 'Favors walls in direct sun whenever it\'s light out.', shade: 'Keeps you off the sunny East side in the afternoon; West and North walls are under tree cover.', none: 'Sun and shade don\'t affect the plan.' }[sp0]));
+        b.appendChild(field('Routing', segRow([['auto', 'Best of both'], ['simple', 'Simple path'], ['flexible', 'Flexible']], rt0, v => upd(() => { plan.routing = v === 'auto' ? undefined : v; })()),
+          { auto: 'Builds both and keeps whichever meets the goals with more buffer, an easier pace or less walking.' + (plan.items.length && !plan.manual && plan.routeUsed ? ` This plan uses ${plan.routeUsed === 'flexible' ? 'flexible routing' : 'the simple path'}.` : ''),
+            simple: 'One clean pass round the horseshoe, no doubling back. Least walking.',
+            flexible: 'May turn back for a route that fits better. A little more walking, often an easier pace.' }[rt0])); }
+
       const go = el('button', 'btn primary', plan.items.length ? 'Rebuild recommended plan' : 'Build recommended plan'); go.type = 'button';
       if (!goalsOf(plan).length) { go.disabled = true; go.title = 'Pick at least one goal first'; }
       go.onclick = () => {
@@ -1069,8 +1124,8 @@
         if (plan.items.length && !confirm('Start an empty plan? This clears the current one.')) return;
         plan.items = []; plan.manual = true; editing = null; save(); render(); ctx.onPlanChange();
       };
-      const br = el('div', 'btnrow'); br.append(go, mine); d.appendChild(br);
-      d.appendChild(el('p', 'hint small', plan.manual ? `Hand-built plan: add walls and routes below. Timing uses your push level (${(INTENSITY[plan.intensity] || INTENSITY.standard).label}) for climbing and walking, plus check-ins and breaks.` : 'Or build it yourself: pick walls and routes, and the timing is worked out from your push level.'));
+      const br = el('div', 'btnrow setup-go'); br.append(go, mine); d.appendChild(br);
+      d.appendChild(el('p', 'hint small', plan.manual ? `Hand-built plan: add walls and routes below. Timing uses your push level (${I.label}) for climbing and walking, plus check-ins and breaks.` : 'Build it yourself: pick walls and routes, and the timing is worked out from your push level.'));
       body.appendChild(d);
     }
 
@@ -1350,8 +1405,8 @@
       body.appendChild(list);
       const add = el('div', 'btnrow');
       const wsel = el('select'); wsel.setAttribute('aria-label', 'Add routes from a wall'); wsel.add(new Option(plan.items.length ? 'Add routes from a wall…' : 'Start at a wall…', ''));
-      const sideOrder = { West: 0, North: 1, East: 2, Valley: 3 }, sideOf = a => (comp().find(r => r.area === a) || {}).side || 'Valley';
-      const walls = [...new Set(comp().map(r => r.area))].filter(a => AREAS()[a]).sort((x, y) => (sideOrder[sideOf(x)] - sideOrder[sideOf(y)]) || ((linePos(AREAS()[x]) ?? 0) - (linePos(AREAS()[y]) ?? 0)));
+      const sideOrder = { West: 0, North: 1, East: 2, Valley: 3 };
+      const walls = [...new Set(comp().filter(r => planFits(plan, r)).map(r => r.area))].filter(a => AREAS()[a]).sort((x, y) => (sideOrder[sideOf(x)] - sideOrder[sideOf(y)]) || ((linePos(AREAS()[x]) ?? 0) - (linePos(AREAS()[y]) ?? 0)));
       let og = null, ls = null;
       for (const a of walls) { const sd = sideOf(a); if (sd !== ls) { og = document.createElement('optgroup'); og.label = sd === 'Valley' ? 'Valley floor' : sd + ' side'; wsel.appendChild(og); ls = sd; } og.appendChild(new Option(a, a)); }
       wsel.onchange = () => { if (wsel.value) openPicker(plan, plan.items.length, wsel.value); wsel.value = ''; };
@@ -1375,7 +1430,7 @@
       const rel = (tl.t - plan.start) / FORMATS[plan.format].dur;
       const cl = Object.fromEntries(WHO.map(k => [k, climber(plan, k)]));
       const inPlan = Object.fromEntries(WHO.map(k => [k, new Set(plan.items.filter(it => it.rid && it.who && it.who.includes(k)).map(it => it.rid))]));
-      const cands = comp().filter(r => (!wall || r.area === wall) && !(plan.noTrad && r.type === 'trad')).map(r => {
+      const cands = comp().filter(r => (!wall || r.area === wall) && planFits(plan, r)).map(r => {
         const who = WHO.filter(k => !tl.stats[k].done.has(r.id) && !inPlan[k].has(r.id) && (r.gu ?? -6) <= DIVS[cl[k].div].max);
         const okNow = who.filter(k => (r.gu ?? -6) <= ceilingAt(plan, cl[k], rel) + 0.01);
         const w = walkMin(tl.area, r.area, plan);

@@ -478,3 +478,30 @@ a.button { color: inherit; text-decoration: none; }
 .sumtable.pacing td { font-weight: 400; }
 .sumtable.pacing th { font-weight: 600; white-space: nowrap; vertical-align: top; }
 .sumtable.pacing tr:first-child th { text-align: left; }
+/* planner setup: collapsible sections, segmented choices, switches */
+.setup > summary { border-bottom: 1px solid transparent; }
+.psec { border-top: 1px solid var(--line); }
+.psec > summary { display: flex; align-items: baseline; gap: 10px; padding: 12px 0; cursor: pointer; list-style: none; min-height: 44px; box-sizing: border-box; }
+.psec > summary::-webkit-details-marker { display: none; }
+.psec > summary::before { content: '▸'; color: var(--muted); width: 1em; flex: 0 0 auto; }
+.psec[open] > summary::before { content: '▾'; }
+.psec-title { font-weight: 700; flex: 0 0 auto; }
+.psum { color: var(--muted); font-size: .85rem; font-weight: 400; flex: 1 1 auto; min-width: 0; text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.psec[open] .psum { visibility: hidden; }
+.psec-body { padding: 2px 0 8px 1.6em; }
+.psec-body > .hint { margin: -6px 0 14px; display: block; }
+.chips.seg { flex-wrap: nowrap; gap: 0; border: 1px solid var(--line); border-radius: var(--radius-s); overflow: hidden; background: var(--bg); }
+.chips.seg button { flex: 1 1 0; min-width: 0; border: 0; border-left: 1px solid var(--line); border-radius: 0; padding: 6px 6px; min-height: 42px; line-height: 1.2; background: transparent; }
+.chips.seg button:first-child { border-left: 0; }
+.chips.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); }
+.toggles { display: flex; flex-direction: column; }
+.toggle { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 8px 0; margin: 0 0 6px; cursor: pointer; }
+.toggles .toggle { margin: 0; }
+.tg-text { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tg-label { font-size: .95rem; }
+.toggle input[role=switch] { appearance: none; -webkit-appearance: none; flex: 0 0 auto; width: 46px; height: 28px; margin: 0; border-radius: 14px; background: var(--line); position: relative; cursor: pointer; transition: background .15s; }
+.toggle input[role=switch]::after { content: ''; position: absolute; top: 3px; left: 3px; width: 22px; height: 22px; border-radius: 50%; background: var(--surface); box-shadow: 0 1px 2px rgba(0,0,0,.25); transition: left .15s; }
+.toggle input[role=switch]:checked { background: var(--soft); }
+.toggle input[role=switch]:checked::after { left: 21px; }
+.toggle input[role=switch]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.setup-go { margin-top: 14px; }
