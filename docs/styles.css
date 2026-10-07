@@ -300,9 +300,12 @@ a.button { color: inherit; text-decoration: none; }
 @media (max-width: 520px) {
   .sumgrid .sumtable { font-size: .86rem; }
   .sumgrid .sumtable th, .sumgrid .sumtable td { padding: 5px 4px; }
-  .gradechart { flex-basis: 118px; }
+  .sumgrid { flex-wrap: wrap; }
+  .sumgrid .sumtable { flex: 1 1 100%; }
+  .gradechart { flex: 1 1 100%; }
 }
-.gradechart figcaption { font-size: .9rem; font-weight: 600; padding: 6px 0; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.sumtable tr.team td { white-space: normal; }
+.gradechart figcaption { text-align: left; font-size: .9rem; font-weight: 600; padding: 6px 0; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
 .gc-row { display: grid; grid-template-columns: 2.9em 1fr; align-items: center; gap: 6px; min-height: 20px; }
 .gc-l { font-size: .82rem; color: var(--muted); text-align: right; }
 .gc-bars { display: flex; flex-direction: column; gap: 2px; padding: 2px 0; }
