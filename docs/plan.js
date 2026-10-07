@@ -824,13 +824,17 @@
       box.appendChild(el('h2', null, 'Go Time!'));
       if (!plan || !plan.items.length) { box.appendChild(el('p', 'hint', 'Build a plan in the Planning tab first. This page then tracks how you\'re doing against it as you tick climbs off.')); return; }
       { // the gun: GO! starts the clock for this plan; shown from 3 hours before the scheduled start until it's pressed
-        const realNow = clockOf(plan, Date.now()), F0 = FORMATS[plan.format];
-        if (!plan.goAt && realNow > plan.start - 3 && realNow < plan.start + F0.dur) {
-          const g = el('button', 'go-gun', 'GO!'); g.type = 'button';
+        const realNow = clockOf(plan, Date.now());
+        if (!plan.goAt) { // always shown; live only within an hour either side of the scheduled start
+          const live = realNow >= plan.start - 1 && realNow <= plan.start + 1;
+          const g = el('button', 'go-gun', 'GO!'); g.type = 'button'; g.disabled = !live;
           g.onclick = () => { plan.goAt = new Date().toISOString(); save(); renderGo(box); };
-          const wrapG = el('div', 'go-gunrow'); wrapG.append(g, el('span', 'hint small', `Press when the gun goes. Until then the clock assumes ${fmtAbs(plan, plan.start, true)}.`));
+          const msg = live ? `Press when the gun goes. Until then the clock assumes ${fmtAbs(plan, plan.start, true)}.`
+            : realNow < plan.start - 1 ? `Unlocks at ${fmtAbs(plan, plan.start - 1, true)}, an hour before the scheduled start. Press it when the gun goes.`
+            : `The GO! window closed at ${fmtAbs(plan, plan.start + 1, true)}; times run from the scheduled ${fmtAbs(plan, plan.start, true)}.`;
+          const wrapG = el('div', 'go-gunrow'); wrapG.append(g, el('span', 'hint small', msg));
           box.appendChild(wrapG);
-        } else if (plan.goAt) {
+        } else {
           const late = Math.round(gunShift(plan) * 60), row = el('p', 'go-started hint small');
           row.append(`Started at ${fmtAbs(plan, clockOf(plan, plan.goAt), true)}` + (late ? ` (${Math.abs(late)} min ${late > 0 ? 'late' : 'early'})` : '') + `; times run from the gun. `);
           const u = el('button', 'link', 'Undo'); u.type = 'button'; u.onclick = () => { if (!confirm('Clear the start time and go back to the scheduled start?')) return; delete plan.goAt; save(); renderGo(box); };

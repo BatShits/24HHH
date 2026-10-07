@@ -565,3 +565,4 @@ a.button { color: inherit; text-decoration: none; }
 .go-gun { flex: 0 0 auto; min-width: 120px; min-height: 64px; border: 0; border-radius: 16px; background: var(--soft); color: #fff; font: 800 1.8rem/1 var(--font); letter-spacing: .04em; box-shadow: 0 3px 0 rgba(0,0,0,.25); cursor: pointer; }
 .go-gun:active { transform: translateY(2px); box-shadow: 0 1px 0 rgba(0,0,0,.25); }
 .go-started { margin: -4px 0 12px; }
+.go-gun:disabled { background: var(--line); color: var(--muted); box-shadow: none; cursor: not-allowed; }
