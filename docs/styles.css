@@ -525,3 +525,28 @@ a.button { color: inherit; text-decoration: none; }
 @keyframes sp-eyes { 0%, 32% { opacity: 0; } 44%, 100% { opacity: 1; } }
 @keyframes sp-open { 0% { opacity: 0; } 53% { opacity: 1; } 79%, 100% { opacity: 0; } }
 @keyframes sp-closed { 0% { opacity: 1; } 53% { opacity: 0; } 79%, 100% { opacity: 1; } }
+/* Go Time!: Angels vs Demons mode */
+.go-mode { margin: 0 0 14px; }
+.chips.seg.go-mode button { min-height: 44px; font-weight: 600; }
+.avd { display: flex; flex-direction: column; gap: 12px; }
+.avd-who { display: flex; align-items: center; justify-content: space-between; gap: 10px; font-size: .85rem; color: var(--muted); }
+.avd-who .chips.seg { flex: 0 1 auto; }
+.avd-who .chips.seg button { min-height: 36px; padding: 4px 12px; font-size: .85rem; }
+.avd-arena { display: flex; align-items: flex-end; justify-content: space-between; margin-top: 4px; }
+.avd-face { line-height: 0; border-radius: 18px; overflow: hidden; transition: opacity .3s, transform .3s; opacity: .5; }
+.avd-face.angel { background: #1F3140; } .avd-face.demon { background: #171211; }
+.avd-face.on { opacity: 1; transform: scale(1.04); }
+.avd-face.gone { opacity: .18; filter: grayscale(1); }
+.avd-face svg { width: min(34vw, 132px); height: auto; display: block; }
+.avd-vs { font-size: 1.6rem; font-weight: 800; font-style: italic; color: var(--line); padding-bottom: 48px; }
+.avd-bar { height: 16px; border-radius: 8px; overflow: hidden; background: #A3201C; }
+.avd-fill { height: 100%; background: #F2A541; border-right: 3px solid var(--ink); transition: width .6s; }
+.avd-lab { display: flex; justify-content: space-between; font-size: .72rem; letter-spacing: .05em; color: var(--muted); margin-top: -6px; }
+.avd-trend { font-weight: 700; } .avd-trend.up { color: #c98318; } .avd-trend.down { color: var(--stiff); }
+.avd-say { margin: 0; padding: 14px 16px; border-radius: 16px; font-size: 1.12rem; line-height: 1.38; max-width: 92%; }
+.avd-say.angel { align-self: flex-start; background: #1F3140; color: #F3E9DC; border-top-left-radius: 4px; }
+.avd-say.demon { align-self: flex-end; background: #2a1715; color: #F3E9DC; border: 1px solid #5a2420; border-top-right-radius: 4px; }
+.avd-say.small { font-size: .9rem; opacity: .75; padding: 8px 12px; }
+.avd-strip { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; margin-top: 4px; }
+.avd-strip .go-v { font-size: 1.3rem; } .avd-strip .go-v.small { font-size: .95rem; line-height: 1.2; }
+.avd-strip .go-v.pos { color: var(--soft); } .avd-strip .go-v.neg { color: var(--stiff); }

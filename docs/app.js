@@ -17,7 +17,7 @@
   const ui = Object.assign({}, defaults, store.get('hhh.ui', {}));
   if (!Array.isArray(ui.fit)) ui.fit = [];
   let notes = store.get('hhh.notes', {});
-  const blankProfile = () => ({ name: '', age: '', onsight: '', project: '', ht: '', ape: 0 });
+  const blankProfile = () => ({ name: '', pro: '', age: '', onsight: '', project: '', ht: '', ape: 0 });
   let profiles = store.get('hhh.profiles', null);
   if (!profiles) { profiles = { me: blankProfile(), partner: blankProfile() }; profiles.me.name = store.get('hhh.climber', ''); }
   const saveProfiles = () => store.set('hhh.profiles', profiles);
@@ -477,6 +477,9 @@
       const field = (label, input) => { const l = el('label', 'field'); l.append(label, input); card.appendChild(l); return input; };
       const txt = field('Name', el('input')); txt.type = 'text'; txt.value = p.name; txt.autocomplete = key === 'me' ? 'nickname' : 'off';
       txt.oninput = () => { p.name = txt.value.trim(); saveProfiles(); };
+      const pro = field('Pronouns (the Angels vs Demons lines use them)', el('select'));
+      for (const [v, l] of [['', 'Not set (they/them)'], ['he', 'he/him'], ['she', 'she/her'], ['they', 'they/them']]) pro.add(new Option(l, v));
+      pro.value = p.pro || ''; pro.onchange = () => { p.pro = pro.value; saveProfiles(); };
       const age = field('Age', el('input')); age.type = 'number'; age.inputMode = 'numeric'; age.min = 10; age.max = 90; age.value = p.age;
       age.oninput = () => { p.age = age.value ? +age.value : ''; saveProfiles(); };
       const gsel = (label, k) => {

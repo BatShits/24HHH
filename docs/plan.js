@@ -706,6 +706,110 @@
       const nextCk = tl.rows.find(r => r.kind === 'checkin' && r.t1 > now) || null;
       return { F, start, end, now, el: el_, left: Math.max(0, end - Math.max(now, start)), R, done, k, st, delta, lastHr, plannedByNow, next, nextCk, lastAt: k ? done[k - 1].at : null };
     }
+
+    // ---------- Angels vs Demons (Go Time! mode) ----------
+    // Per phone: ui.goMode 'ad' | 'stats', ui.voice 'both' | 'angel' | 'demon'. Never shared with plans.
+    const VSLOT = 8 * 60000; // a line stays up about 8 minutes unless the situation changes
+    function goalsMetLive(plan, L) {
+      const gs = goalsOf(plan); if (!gs.length) return false;
+      const val = { laps: s => s.laps, score: s => s.pts + (s.east ? 300 : 0), height: s => s.ft, trad: s => s.trad };
+      return gs.every(g => WHO.every(k => { const s = L.st[k];
+        if (val[g]) return val[g](s) >= targetOf(plan, g);
+        const a = achievements(plan, s); return g === 'full' ? a.full : g === 'golden' ? a.golden : a.qual; }));
+    }
+    // who's winning right now: recent pace against the plan (routes in the last 45 min vs planned in that window), plus the overall lead
+    function tugOf(plan, L, now) {
+      if (now < L.start || L.delta == null) return { angel: 50, trend: 0, recent: 0 };
+      const t = Math.min(now, L.end), w = 0.75;
+      const doneRecent = L.done.filter(x => x.at > t - w && x.at <= t).length;
+      const planRecent = L.R.filter(r => r.t1 > t - w && r.t1 <= t).length;
+      const recent = doneRecent - planRecent, mins = L.delta * 60;
+      const angel = Math.round(50 + Math.max(-45, Math.min(45, recent * 15 + mins * 0.35)));
+      return { angel, trend: recent >= 1 ? 1 : recent <= -1 ? -1 : 0, recent };
+    }
+    function voiceSituation(plan, L, now, tug) {
+      if (now < L.start) return ['pre'];
+      if (now >= L.end) return ['over'];
+      const vs = store.get('hhh.voice', {}), rec = vs[plan.id] || {};
+      if (goalsMetLive(plan, L)) { if (rec.goalAt == null) { rec.goalAt = now; vs[plan.id] = rec; store.set('hhh.voice', vs); } if (now - rec.goalAt < 1) return ['goal']; }
+      if (L.end - now <= 1) return ['lastHour'];
+      if (L.lastAt != null && now - L.lastAt < 4 / 60) return ['ticked'];
+      const out = [], mins = L.delta * 60;
+      const sched = now - L.start < 1 ? 'first'
+        : (L.lastAt == null ? now - L.start : now - L.lastAt) > 40 / 60 ? 'idle'
+        : mins > 3 && tug.trend < 0 ? 'slipping' : mins < -3 && tug.trend > 0 ? 'catchUp'
+        : mins >= 30 ? 'wayAhead' : mins > 3 ? 'ahead' : mins <= -30 ? 'wayBehind' : mins < -3 ? 'behind' : 'onPlan';
+      out.push(sched);
+      // flavour that can take a turn: check-in soon, a hard route next, dusk, the small hours, sunrise
+      if (L.nextCk && L.nextCk.t0 - now < 10 / 60) out.push('checkin');
+      const me = climber(plan, 'me');
+      if (L.next && L.next.r.gu != null && L.next.r.gu >= me.os && L.next.t0 - now < 0.5) out.push('hard');
+      const dl = Sun.daylight(plan.date), day = Math.floor(now / 24), hr = now - day * 24;
+      if (day === 0 && hr >= dl.set && hr < dl.set + 1.5) out.push('dusk');
+      if (plan.format === '24' && day === 1 && hr >= 2 && hr < 5) out.push('night');
+      if (plan.format === '24' && day === 1 && hr >= dl.rise && hr < dl.rise + 1.5) out.push('sunrise');
+      return out;
+    }
+    function fillLine(text, plan, L, now) {
+      const P = profiles.partner || {}, pro = { he: ['he', 'him', 'his'], she: ['she', 'her', 'her'] }[P.pro] || ['they', 'them', 'their'];
+      const mins = L.delta == null ? 0 : Math.abs(Math.round(L.delta * 60)), gap = L.lastAt == null ? Math.round((now - L.start) * 60) : Math.round((now - L.lastAt) * 60);
+      const nm = (P.name || '').trim();
+      let t = text.replace(/\{min\}/g, mins + ' min').replace(/\{gap\}/g, Math.max(1, gap) + ' min')
+        .replace(/\{done\}/g, L.k + (L.k === 1 ? ' route' : ' routes')).replace(/\{next\}/g, L.next ? L.next.r.name : 'the next one')
+        .replace(/\{He\}/g, pro[0][0].toUpperCase() + pro[0].slice(1)).replace(/\{he\}/g, pro[0]).replace(/\{him\}/g, pro[1]).replace(/\{his\}/g, pro[2]);
+      t = t.replace(/(^|[.!?]\s+)\{partner\}/g, (m, a) => a + (nm || 'Your partner')).replace(/\{partner\}/g, nm || 'your partner');
+      return t;
+    }
+    const hashStr = s => { let h = 2166136261; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+    function pickLine(who, key, seed, plan, L) {
+      const V = window.VOICES || {}, list = ((V[who] || {})[key] || []).filter(x => L.next || !/\{next\}/.test(x));
+      if (!list.length) return null;
+      return list[hashStr(who + key + seed + plan.id) % list.length];
+    }
+    function renderVoices(box, plan, L, now) {
+      const voice = ui.voice || 'both', tug = tugOf(plan, L, now), sits = voiceSituation(plan, L, now, tug);
+      const slot = Math.floor(Date.now() / VSLOT), key = sits.length > 1 && hashStr('f' + slot) % 2 ? sits[1 + hashStr('g' + slot) % (sits.length - 1)] : sits[0];
+      // Both: whoever is winning talks (a tie takes turns)
+      const speaker = voice !== 'both' ? voice : tug.angel > 52 ? 'angel' : tug.angel < 48 ? 'demon' : slot % 2 ? 'angel' : 'demon';
+      const wrap = el('div', 'avd');
+      // who's talking
+      const who = el('div', 'avd-who'); who.appendChild(el('span', null, 'Who’s talking'));
+      const seg = el('div', 'chips seg');
+      for (const [v, lab] of [['both', 'Both'], ['angel', 'Angel'], ['demon', 'Demon']]) {
+        const b = el('button', null, lab); b.type = 'button'; b.setAttribute('aria-pressed', voice === v);
+        b.onclick = () => { if (v === voice) return; ui.voiceSwitch = { from: voice, to: v, at: Date.now() }; ui.voice = v; ctx.saveUi(); renderGo(box); };
+        seg.appendChild(b);
+      }
+      who.appendChild(seg); wrap.appendChild(who);
+      // faces and the tug-of-war
+      const arena = el('div', 'avd-arena');
+      const fa = el('div', 'avd-face angel' + (speaker === 'angel' ? ' on' : '') + (voice === 'demon' ? ' gone' : '')); fa.innerHTML = Demon.angel({ size: 128, label: 'Angel' });
+      const fd = el('div', 'avd-face demon' + (speaker === 'demon' ? ' on' : '') + (voice === 'angel' ? ' gone' : '')); fd.innerHTML = Demon.svg({ size: 128, mouth: speaker === 'demon' && tug.angel < 40 ? 'open' : 'closed', label: 'Demon' });
+      arena.append(fa, el('span', 'avd-vs', 'VS'), fd); wrap.appendChild(arena);
+      const bar = el('div', 'avd-bar'), fill = el('div', 'avd-fill'); fill.style.width = tug.angel + '%'; bar.appendChild(fill);
+      bar.setAttribute('role', 'img'); bar.setAttribute('aria-label', `Angel ${tug.angel}%, demon ${100 - tug.angel}%`);
+      const lab = el('div', 'avd-lab'); lab.append(el('span', null, 'ANGEL'), el('span', 'avd-trend ' + (tug.trend > 0 ? 'up' : tug.trend < 0 ? 'down' : ''), now < L.start ? 'WAITING FOR THE GUN' : tug.trend > 0 ? '◀ ANGEL RALLYING' : tug.trend < 0 ? 'DEMON SURGING ▶' : tug.angel >= 50 ? 'ANGEL HOLDING' : 'DEMON HOLDING'), el('span', null, 'DEMON'));
+      wrap.append(bar, lab);
+      // the line(s): a switch in the last 90 s gets a parting shot and a hello
+      const say = (w, text, cls) => { if (!text) return; const p = el('p', 'avd-say ' + w + (cls ? ' ' + cls : ''), fillLine(text, plan, L, now)); wrap.appendChild(p); };
+      const sw = ui.voiceSwitch;
+      if (sw && Date.now() - sw.at < 90000 && sw.to === voice) {
+        const seed = 's' + sw.at;
+        if (sw.to === 'angel') { say('demon', pickLine('demon', 'switch_off', seed, plan, L), 'small'); say('angel', pickLine('angel', 'switch_on', seed, plan, L)); }
+        else if (sw.to === 'demon') { say('angel', pickLine('angel', 'switch_off', seed, plan, L), 'small'); say('demon', pickLine('demon', 'switch_on', seed, plan, L)); }
+        else if (sw.from === 'angel') say('demon', pickLine('demon', 'switch_on', seed, plan, L));
+        else say('angel', pickLine('angel', 'switch_on', seed, plan, L));
+      } else say(speaker, pickLine(speaker, key, slot, plan, L) || pickLine(speaker, sits[0], slot, plan, L));
+      // the numbers that matter, so this mode isn't flying blind
+      const mins = L.delta == null ? null : Math.round(L.delta * 60);
+      const strip = el('div', 'avd-strip');
+      const tile = (v, s, cls) => { const t = el('div', 'go-tile'); t.append(el('span', 'go-v' + (cls ? ' ' + cls : ''), v), el('span', 'go-sub', s)); strip.appendChild(t); };
+      tile(mins == null ? '–' : (mins > 0 ? '+' : mins < 0 ? '−' : '') + Math.abs(mins), mins == null ? 'min vs plan, from the gun' : mins >= 0 ? 'min ahead of plan' : 'min behind plan', mins == null ? '' : mins > 0 ? 'pos' : mins < 0 ? 'neg' : '');
+      tile(`${L.k}`, `routes · ${L.plannedByNow} planned by now`);
+      tile(L.next ? `${L.next.r.g} ${L.next.r.name}` : '–', L.next ? 'next · ' + L.next.r.area.replace(/^The /, '') : 'nothing left in the plan', 'small');
+      wrap.appendChild(strip);
+      box.appendChild(wrap);
+    }
     let goTimer = 0;
     function renderGo(box) {
       box.textContent = '';
@@ -713,6 +817,10 @@
       const plan = active();
       box.appendChild(el('h2', null, 'Go Time!'));
       if (!plan || !plan.items.length) { box.appendChild(el('p', 'hint', 'Build a plan in the Planning tab first. This page then tracks how you\'re doing against it as you tick climbs off.')); return; }
+      { const mode = ui.goMode || 'ad', seg = el('div', 'chips seg go-mode');
+        for (const [v, lab] of [['ad', 'Angels vs Demons'], ['stats', 'Stats']]) { const bt = el('button', null, lab); bt.type = 'button'; bt.setAttribute('aria-pressed', mode === v); bt.onclick = () => { ui.goMode = v; ctx.saveUi(); renderGo(box); }; seg.appendChild(bt); }
+        box.appendChild(seg);
+        if (mode === 'ad') { const n0 = nowAbs(plan); renderVoices(box, plan, liveStats(plan, n0), n0); return; } }
       const now = nowAbs(plan), L = liveStats(plan, now), hm = h => { const t = Math.round(Math.abs(h) * 60); return (t >= 60 ? Math.floor(t / 60) + ' h ' : '') + (t % 60) + ' min'; };
       const statusTxt = now < L.start ? `${plan.name} starts in ${hm(L.start - now)} (${fmtAbs(plan, L.start, true)}).`
         : now >= L.end ? `${plan.name} is over. Final numbers below.`

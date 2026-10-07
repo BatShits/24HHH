@@ -28,6 +28,34 @@
       `</g>` + (anim ? `<circle class="dm-glow" cx="256" cy="211" r="58" fill="${GOLD}"/>` : '') + `</svg>`;
   }
 
+  // the angel: a woman with long auburn hair, a halo, wings and her own headlamp
+  function angel({ size = 120, label = 'Angel' } = {}) {
+    return `<svg width="${size}" height="${size}" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${label}">` +
+      `<path d="M150 440 C66 410 26 306 36 196 C66 248 98 272 132 282 C92 304 98 364 152 384 Z" fill="${BONE}"/>` +
+      `<path d="M362 440 C446 410 486 306 476 196 C446 248 414 272 380 282 C420 304 414 364 360 384 Z" fill="${BONE}"/>` +
+      `<ellipse cx="256" cy="72" rx="96" ry="22" fill="none" stroke="${GOLD}" stroke-width="14"/>` +
+      `<path d="M256 96 C160 96 112 172 112 272 C112 362 98 432 74 512 L438 512 C414 432 400 362 400 272 C400 172 352 96 256 96 Z" fill="#5A2E1E"/>` +
+      `<path d="M226 372 L286 372 L292 440 L220 440 Z" fill="#E3B694"/>` +
+      `<path d="M108 512 C122 462 176 438 222 432 Q256 474 290 432 C336 438 390 462 404 512 Z" fill="${BONE}"/>` +
+      `<path d="M256 394 C204 394 170 346 168 286 C166 214 204 166 256 166 C308 166 346 214 344 286 C342 346 308 394 256 394 Z" fill="#EBC2A2"/>` +
+      `<path d="M166 276 C160 190 208 138 268 140 C320 142 352 186 350 252 C332 212 302 196 262 194 C226 210 194 238 166 276 Z" fill="#5A2E1E"/>` +
+      `<path d="M170 232 C220 214 292 214 342 232 L342 250 C292 232 220 232 170 250 Z" fill="#2B4A5E"/>` +
+      `<rect x="230" y="206" width="52" height="40" rx="10" fill="${BONE}"/><circle cx="256" cy="226" r="13" fill="${GOLD}"/>` +
+      `<path d="M192 282 Q214 270 236 278" fill="none" stroke="#5A2E1E" stroke-width="5" stroke-linecap="round"/>` +
+      `<path d="M276 278 Q298 270 320 282" fill="none" stroke="#5A2E1E" stroke-width="5" stroke-linecap="round"/>` +
+      `<path d="M196 302 Q214 288 234 302 Q214 313 196 302 Z" fill="#FFFFFF"/><path d="M278 302 Q298 288 316 302 Q298 313 278 302 Z" fill="#FFFFFF"/>` +
+      `<circle cx="215" cy="301" r="8" fill="#3E6E8E"/><circle cx="297" cy="301" r="8" fill="#3E6E8E"/>` +
+      `<circle cx="215" cy="301" r="3.5" fill="#1B1412"/><circle cx="297" cy="301" r="3.5" fill="#1B1412"/>` +
+      `<circle cx="218" cy="298" r="2" fill="#FFFFFF"/><circle cx="300" cy="298" r="2" fill="#FFFFFF"/>` +
+      `<path d="M190 302 Q214 282 238 300" fill="none" stroke="#2A1A14" stroke-width="4" stroke-linecap="round"/>` +
+      `<path d="M274 300 Q298 282 322 302" fill="none" stroke="#2A1A14" stroke-width="4" stroke-linecap="round"/>` +
+      `<path d="M192 300 L182 293 M196 296 L189 288 M320 300 L330 293 M316 296 L323 288" fill="none" stroke="#2A1A14" stroke-width="3" stroke-linecap="round"/>` +
+      `<circle cx="198" cy="336" r="16" fill="#E39A86" fill-opacity="0.35"/><circle cx="314" cy="336" r="16" fill="#E39A86" fill-opacity="0.35"/>` +
+      `<path d="M256 306 Q252 330 248 338 Q256 344 264 338" fill="none" stroke="#C99A7E" stroke-width="3" stroke-linecap="round"/>` +
+      `<path d="M232 362 Q245 353 256 359 Q267 353 280 362 Q256 367 232 362 Z" fill="#B84A52"/>` +
+      `<path d="M232 362 Q256 384 280 362 Q256 369 232 362 Z" fill="#CF6468"/></svg>`;
+  }
+
   // ---- opening screen ----
   function splash() {
     const reduce = window.matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -42,6 +70,6 @@
     setTimeout(end, reduce ? 1800 : 5000);
   }
 
-  window.Demon = { svg, splash };
+  window.Demon = { svg, angel, splash };
   if (document.body) splash(); else document.addEventListener('DOMContentLoaded', splash);
 })();
