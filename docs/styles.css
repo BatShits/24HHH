@@ -505,26 +505,34 @@ a.button { color: inherit; text-decoration: none; }
 .toggle input[role=switch]:checked::after { left: 21px; }
 .toggle input[role=switch]:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .setup-go { margin-top: 14px; }
-/* opening screen: the demon wakes up (demon.js) */
+/* opening screen: the angel arrives, then the demon wakes up (demon.js) */
 #splash { position: fixed; inset: 0; z-index: 9999; background: #171211; display: flex; align-items: center; justify-content: center; transition: opacity .35s; cursor: pointer; }
 #splash.out { opacity: 0; pointer-events: none; }
-#splash .sp-stage { display: flex; flex-direction: column; align-items: center; gap: 6px; animation: sp-in .35s ease-out both; }
-#splash .sp-title { margin-top: 22px; color: #F3E9DC; font: 700 28px/1.1 Georgia, "Times New Roman", serif; letter-spacing: .08em; }
+#splash .sp-stage { display: flex; flex-direction: column; align-items: center; gap: 14px; animation: sp-in .3s ease-out both; }
+#splash .sp-angel, #splash .sp-demon { line-height: 0; }
+#splash .sp-angel { margin-bottom: 26px; animation: sp-angel 6s ease-out both; }
+#splash .sp-logo { display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 6px 0; animation: sp-logo 6s ease-out both; }
+#splash .sp-title { color: #F3E9DC; font: 700 28px/1.1 Georgia, "Times New Roman", serif; letter-spacing: .08em; }
 #splash .sp-sub { color: #F2A541; font: 15px/1.2 Georgia, "Times New Roman", serif; letter-spacing: .3em; }
-#splash .sp-title, #splash .sp-sub { animation: sp-eyes 5s ease-out both; }
-#splash .dm-lamp { animation: sp-lamp 5s linear both; }
-#splash .dm-glow { animation: sp-glow 5s linear both; }
-#splash .dm-eyes { animation: sp-eyes 5s ease-out both; }
-#splash .dm-open { animation: sp-open 5s steps(1, end) both; }
-#splash .dm-closed { animation: sp-closed 5s steps(1, end) both; }
+#splash .sp-demon { animation: sp-demon 6s ease-out both; }
+#splash .an-halo { animation: sp-halo 6s ease-in-out both; }
+#splash .dm-lamp { animation: sp-lamp 6s linear both; }
+#splash .dm-glow { animation: sp-glow 6s linear both; }
+#splash .dm-eyes { animation: sp-eyes 6s ease-out both; }
+#splash .dm-open { animation: sp-open 6s steps(1, end) both; }
+#splash .dm-closed { animation: sp-closed 6s steps(1, end) both; }
+#splash.calm .sp-angel, #splash.calm .sp-logo, #splash.calm .sp-demon, #splash.calm .an-halo { animation: none; }
 #splash.calm .dm-open { display: none; }
-#splash.calm .sp-title, #splash.calm .sp-sub { animation: none; }
-@keyframes sp-in { from { opacity: 0; transform: scale(.96); } to { opacity: 1; transform: none; } }
-@keyframes sp-lamp { 0%, 12% { opacity: 0; } 13% { opacity: 1; } 15% { opacity: 0; } 19% { opacity: 1; } 21% { opacity: .15; } 22% { opacity: 0; } 27%, 100% { opacity: 1; } }
-@keyframes sp-glow { 0%, 27% { opacity: 0; } 33%, 100% { opacity: .35; } }
-@keyframes sp-eyes { 0%, 32% { opacity: 0; } 44%, 100% { opacity: 1; } }
-@keyframes sp-open { 0% { opacity: 0; } 53% { opacity: 1; } 79%, 100% { opacity: 0; } }
-@keyframes sp-closed { 0% { opacity: 1; } 53% { opacity: 0; } 79%, 100% { opacity: 1; } }
+@keyframes sp-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sp-angel { 0%, 4% { opacity: 0; transform: translateY(-10px); } 18%, 100% { opacity: 1; transform: none; } }
+@keyframes sp-halo { 0%, 14% { stroke: #7a5a2a; } 22% { stroke: #FFD27A; } 30%, 100% { stroke: #F2A541; } }
+@keyframes sp-logo { 0%, 20% { opacity: 0; } 30%, 100% { opacity: 1; } }
+@keyframes sp-demon { 0%, 30% { opacity: 0; transform: translateY(10px); } 40%, 100% { opacity: 1; transform: none; } }
+@keyframes sp-lamp { 0%, 42% { opacity: 0; } 43% { opacity: 1; } 45% { opacity: 0; } 48% { opacity: 1; } 50% { opacity: .15; } 51% { opacity: 0; } 54%, 100% { opacity: 1; } }
+@keyframes sp-glow { 0%, 54% { opacity: 0; } 58%, 100% { opacity: .35; } }
+@keyframes sp-eyes { 0%, 56% { opacity: 0; } 63%, 100% { opacity: 1; } }
+@keyframes sp-open { 0% { opacity: 0; } 68% { opacity: 1; } 84%, 100% { opacity: 0; } }
+@keyframes sp-closed { 0% { opacity: 1; } 68% { opacity: 0; } 84%, 100% { opacity: 1; } }
 /* Go Time!: Angels vs Demons mode */
 .go-mode { margin: 0 0 14px; }
 .chips.seg.go-mode button { min-height: 44px; font-weight: 600; }
