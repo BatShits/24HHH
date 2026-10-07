@@ -97,11 +97,17 @@
       return { ymd: dt.toISOString().slice(0, 10), hour: abs - day * 24, wd: dt.toLocaleDateString(undefined, { weekday: 'short', timeZone: 'UTC' }) };
     }
     const fmtAbs = (plan, abs, wd) => { const x = dh(plan, abs); return (wd && Math.floor(abs / 24) ? x.wd + ' ' : '') + Sun.fmt(x.hour); };
-    function nowAbs(plan) {
-      const ct = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+    // hours after plan-date midnight (Chicago) of a moment, on the wall clock
+    function clockOf(plan, when) {
+      const ct = new Date(new Date(when).toLocaleString('en-US', { timeZone: 'America/Chicago' }));
       const [y, m, d] = plan.date.split('-').map(Number);
       return (ct - new Date(y, m - 1, d)) / 3600000;
     }
+    // GO! pressed when the gun went: plan.goAt (ISO). Everything live runs from that moment instead of the scheduled start,
+    // so a long roll call doesn't make you look behind. gunShift = how late the gun was, in hours.
+    const gunShift = plan => plan.goAt ? clockOf(plan, plan.goAt) - plan.start : 0;
+    // "now" on the plan's own clock: real time, moved back by however late the gun went
+    const nowAbs = plan => clockOf(plan, Date.now()) - gunShift(plan);
     function clockAbs(plan) {
       const [y, m, d] = plan.date.split('-').map(Number); const [y2, m2, d2] = ui.date.split('-').map(Number);
       return (Date.UTC(y2, m2 - 1, d2) - Date.UTC(y, m - 1, d)) / 3600000 + ui.hour;
@@ -689,7 +695,7 @@
       const F = FORMATS[plan.format], start = plan.start, end = start + F.dur;
       const tl = timeline(plan, plan.items), R = tl.rows.filter(r => r.kind === 'route');
       const [y, m, d] = plan.date.split('-').map(Number), base = new Date(y, m - 1, d);
-      const absOf = iso => { const ct = new Date(new Date(iso).toLocaleString('en-US', { timeZone: 'America/Chicago' })); return (ct - base) / 3600000; };
+      const sh = gunShift(plan), absOf = iso => clockOf(plan, iso) - sh;
       const done = R.filter(r => r.done).map(r => ({ row: r, at: Math.max(start, Math.min(end, absOf(r.done))) })).sort((a, b) => a.at - b.at);
       const st = blankStats(plan); for (const x of done) applyRoute(plan, st, x.row.r, x.row.who, x.at);
       const k = done.length, el_ = Math.max(0, Math.min(now, end) - start);
@@ -817,12 +823,25 @@
       const plan = active();
       box.appendChild(el('h2', null, 'Go Time!'));
       if (!plan || !plan.items.length) { box.appendChild(el('p', 'hint', 'Build a plan in the Planning tab first. This page then tracks how you\'re doing against it as you tick climbs off.')); return; }
+      { // the gun: GO! starts the clock for this plan; shown from 3 hours before the scheduled start until it's pressed
+        const realNow = clockOf(plan, Date.now()), F0 = FORMATS[plan.format];
+        if (!plan.goAt && realNow > plan.start - 3 && realNow < plan.start + F0.dur) {
+          const g = el('button', 'go-gun', 'GO!'); g.type = 'button';
+          g.onclick = () => { plan.goAt = new Date().toISOString(); save(); renderGo(box); };
+          const wrapG = el('div', 'go-gunrow'); wrapG.append(g, el('span', 'hint small', `Press when the gun goes. Until then the clock assumes ${fmtAbs(plan, plan.start, true)}.`));
+          box.appendChild(wrapG);
+        } else if (plan.goAt) {
+          const late = Math.round(gunShift(plan) * 60), row = el('p', 'go-started hint small');
+          row.append(`Started at ${fmtAbs(plan, clockOf(plan, plan.goAt), true)}` + (late ? ` (${Math.abs(late)} min ${late > 0 ? 'late' : 'early'})` : '') + `; times run from the gun. `);
+          const u = el('button', 'link', 'Undo'); u.type = 'button'; u.onclick = () => { if (!confirm('Clear the start time and go back to the scheduled start?')) return; delete plan.goAt; save(); renderGo(box); };
+          row.appendChild(u); box.appendChild(row);
+        } }
       { const mode = ui.goMode || 'ad', seg = el('div', 'chips seg go-mode');
         for (const [v, lab] of [['ad', 'Angels vs Demons'], ['stats', 'Stats']]) { const bt = el('button', null, lab); bt.type = 'button'; bt.setAttribute('aria-pressed', mode === v); bt.onclick = () => { ui.goMode = v; ctx.saveUi(); renderGo(box); }; seg.appendChild(bt); }
         box.appendChild(seg);
         if (mode === 'ad') { const n0 = nowAbs(plan); renderVoices(box, plan, liveStats(plan, n0), n0); return; } }
       const now = nowAbs(plan), L = liveStats(plan, now), hm = h => { const t = Math.round(Math.abs(h) * 60); return (t >= 60 ? Math.floor(t / 60) + ' h ' : '') + (t % 60) + ' min'; };
-      const statusTxt = now < L.start ? `${plan.name} starts in ${hm(L.start - now)} (${fmtAbs(plan, L.start, true)}).`
+      const statusTxt = now < L.start ? `${plan.name} starts in ${hm(L.start - now)} (${fmtAbs(plan, L.start + gunShift(plan), true)}).`
         : now >= L.end ? `${plan.name} is over. Final numbers below.`
         : `${plan.name}: hour ${Math.floor(now - L.start) + 1} of ${L.F.dur}, ${hm(L.end - now)} left.`;
       box.appendChild(el('p', 'go-status', statusTxt));
@@ -830,7 +849,7 @@
       const mins = L.delta == null ? null : Math.round(L.delta * 60);
       const sch = el('div', 'go-sched ' + (mins == null || mins === 0 ? 'even' : mins > 0 ? 'ahead' : 'behind'));
       sch.append(el('span', 'go-big', mins == null ? '–' : (mins > 0 ? '+' : mins < 0 ? '−' : '') + Math.abs(mins)),
-        el('span', 'go-lbl', mins == null ? `ahead or behind schedule, in minutes. Starts counting at the gun (${fmtAbs(plan, L.start, true)}).` : mins > 0 ? 'minutes ahead of schedule' : mins < 0 ? 'minutes behind schedule' : 'right on schedule'));
+        el('span', 'go-lbl', mins == null ? `ahead or behind schedule, in minutes. Starts counting at the gun (${fmtAbs(plan, L.start + gunShift(plan), true)}).` : mins > 0 ? 'minutes ahead of schedule' : mins < 0 ? 'minutes behind schedule' : 'right on schedule'));
       const rate = L.el >= 1 / 6 ? L.k / L.el : null, plannedRate = L.R.length / L.F.dur;
       const proj = rate != null ? Math.round(L.k + rate * L.left) : null;
       const sgn = (v, unit) => `<b class="${v > 0 ? 'pos' : v < 0 ? 'neg' : 'zero'}">${v > 0 ? '+' : v < 0 ? '−' : ''}${Math.abs(v)}</b> ${unit}`;
@@ -847,7 +866,7 @@
         ['Routes per hour', rate != null ? rate.toFixed(1) : '–', `since the start · plan ${plannedRate.toFixed(1)}`, rate != null ? (rate >= plannedRate - 0.05 ? 'pos' : 'neg') : ''],
         ['Last hour', `${L.lastHr}`, 'routes in the last 60 min'],
         ['Projected', proj != null ? `${proj}` : '–', `routes by the end at this rate · plan ${L.R.length}`, proj != null ? (proj >= L.R.length ? 'pos' : 'neg') : ''],
-        ['Since last climb', L.lastAt != null && now >= L.start ? hm(Math.min(now, L.end) - L.lastAt) : '–', L.lastAt != null ? 'ticked at ' + fmtAbs(plan, L.lastAt, true) : 'nothing ticked yet'],
+        ['Since last climb', L.lastAt != null && now >= L.start ? hm(Math.min(now, L.end) - L.lastAt) : '–', L.lastAt != null ? 'ticked at ' + fmtAbs(plan, L.lastAt + gunShift(plan), true) : 'nothing ticked yet'],
         ['Elapsed', now > L.start ? hm(Math.min(now, L.end) - L.start) : '0 min', `${hm(L.left)} left`],
       ];
       const grid = el('div', 'go-grid');
@@ -858,10 +877,10 @@
         const n = L.next, late = Math.round((now - n.t0) * 60);
         const nx = el('div', 'go-next'); nx.append(el('span', 'go-t', 'Next up'),
           el('span', 'go-v', `${n.r.g} ${n.r.name}`),
-          el('span', 'go-sub', `${n.r.area} · planned ${fmtAbs(plan, n.t0, true)}` + (late > 0 && now >= L.start ? ` (${late} min ago)` : '')));
+          el('span', 'go-sub', `${n.r.area} · planned ${fmtAbs(plan, n.t0 + gunShift(plan), true)}` + (late > 0 && now >= L.start ? ` (${late} min ago)` : '')));
         box.appendChild(nx);
       }
-      if (L.nextCk) box.appendChild(el('p', 'go-ck', `Next check-in: ${L.nextCk.label.replace(/^Check-in,? ?/, '').replace(/[()]/g, '') || 'window'} · planned ${fmtAbs(plan, L.nextCk.t0, true)}` + (now >= L.start ? `, in ${hm(L.nextCk.t0 - now)}` : '')));
+      if (L.nextCk) box.appendChild(el('p', 'go-ck', `Next check-in: ${L.nextCk.label.replace(/^Check-in,? ?/, '').replace(/[()]/g, '') || 'window'} · planned ${fmtAbs(plan, L.nextCk.t0 + gunShift(plan), true)}` + (now >= L.start ? `, in ${hm(L.nextCk.t0 - now)}` : '')));
       // per climber, against the goals
       const gs = goalsOf(plan), tb = el('table', 'sumtable go-table');
       const hd = el('tr'); hd.append(el('th'), ...WHO.map(k => el('th', null, climber(plan, k).name))); tb.appendChild(hd);
@@ -1371,7 +1390,7 @@
       if (done.length) {
         const last = done[done.length - 1];
         const row = tl.rows.find(r => r.kind === 'route' && r.i === last.i);
-        const actualCT = (() => { const t = new Date(new Date(last.it.done).toLocaleString('en-US', { timeZone: 'America/Chicago' })); const [y, m, d] = plan.date.split('-').map(Number); return (t - new Date(y, m - 1, d)) / 3600000; })();
+        const actualCT = clockOf(plan, last.it.done) - gunShift(plan);
         const delta = Math.round((actualCT - row.t1) * 60);
         const msg = Math.abs(delta) <= 5 ? 'On pace.' : delta > 0 ? `Behind by ${delta} min.` : `Ahead by ${-delta} min.`;
         const pace = el('p', 'pace ' + (Math.abs(delta) <= 5 ? 'on' : delta > 0 ? 'behind' : 'ahead'), `${msg} ${done.length} of ${plan.items.filter(i => i.rid).length} planned routes done.`);
