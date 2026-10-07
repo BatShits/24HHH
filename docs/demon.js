@@ -39,7 +39,7 @@
     let gone = false;
     const end = () => { if (gone) return; gone = true; d.classList.add('out'); setTimeout(() => d.remove(), 350); };
     d.addEventListener('click', end);
-    setTimeout(end, reduce ? 1400 : 3400);
+    setTimeout(end, reduce ? 1800 : 5000);
   }
 
   window.Demon = { svg, splash };
