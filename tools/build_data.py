@@ -69,7 +69,7 @@ print(len(routes), 'routes', len(areas), 'areas', os.path.getsize(os.path.join(O
 # stamp version into service worker + app
 import datetime, hashlib
 h = hashlib.sha1()
-for f in ['index.html','styles.css','sun.js','map.js','plan.js','app.js','data/routes.json','data/areas.json','data/trails.json']:
+for f in ['index.html','styles.css','sun.js','map.js','plan.js','app.js','share.js','photos.js','demon.js','voices.js','manifest.webmanifest','sw.template.js','icons/icon-512.png','data/routes.json','data/areas.json','data/trails.json']:  # every shell file, so any change reaches phones
     h.update(open(os.path.join(ROOT,'docs',f),'rb').read())
 ver = datetime.date.today().isoformat() + '-' + h.hexdigest()[:7]
 open(os.path.join(ROOT,'docs','version.js'),'w').write(f"window.HHH_VERSION='{ver}';\n")
