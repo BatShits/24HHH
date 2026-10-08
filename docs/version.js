@@ -1,1 +1,1 @@
-window.HHH_VERSION='2026-10-07-67d2c9f';
+window.HHH_VERSION='2026-10-08-f7678d8';

@@ -75,8 +75,8 @@
     // ---------- storage ----------
     let state = store.get('hhh.plans', null);
     if (!state || !Array.isArray(state.plans)) state = { active: null, plans: [] };
-    // Event hours are fixed by the rules: 12-hour 7:30 am to 7:30 pm, 24-hour 10:00 am to 10:00 am.
-    const fixStart = p => { if (p && FORMATS[p.format]) p.start = FORMATS[p.format].startHour; return p; };
+    // Official start: 12-hour 7:30 am, 24-hour 10:00 am. plan.startCustom keeps an edited start (practice runs).
+    const fixStart = p => { if (p && FORMATS[p.format] && !(p.startCustom && Number.isFinite(p.start))) { p.start = FORMATS[p.format].startHour; delete p.startCustom; } return p; };
     state.plans.forEach(fixStart);
     const save = () => store.set('hhh.plans', state);
     const active = () => state.plans.find(p => p.id === state.active) || null;
@@ -217,7 +217,8 @@
     // ---------- timeline + stats ----------
     function fixedEvents(plan) {
       const F = FORMATS[plan.format];
-      return F.checkins.map(c => ({ kind: 'checkin', at: c.at, min: 10, label: c.label })).filter(e => e.at >= plan.start && e.at < plan.start + F.dur);
+      const off = plan.start - F.startHour; // a moved start keeps check-ins at the same hours into the event
+      return F.checkins.map(c => ({ kind: 'checkin', at: c.at + off, min: 10, label: off ? `Check-in (${Sun.fmt((c.at + off) % 24)}–${Sun.fmt((c.end + off) % 24)} window)` : c.label })).filter(e => e.at >= plan.start && e.at < plan.start + F.dur);
     }
     // Shared clock for check-ins and hourly breaks, used by both the timeline and the optimizer.
     function fixedClock(plan) {
@@ -1119,12 +1120,25 @@
 
       // ---- Event ----
       { const dd = dh(plan, plan.start);
-        const b = section('event', 'Event', `${F.label} · ${dd.wd} ${plan.date.slice(5).replace('-', '/')}`, false);
+        const b = section('event', 'Event', `${F.label} · ${dd.wd} ${plan.date.slice(5).replace('-', '/')}${plan.startCustom ? ' · practice ' + Sun.fmt(plan.start) : ''}`, false);
         const name = el('input'); name.type = 'text'; name.value = plan.name; name.onchange = () => { plan.name = name.value.trim() || plan.name; save(); render(); };
         b.appendChild(field('Plan name', name));
-        b.appendChild(field('Format', segRow([['24', '24-hour'], ['12', '12-hour']], plan.format, v => upd(() => { plan.format = v; plan.date = defaultDate(v); plan.start = FORMATS[v].startHour; plan.items = []; })())));
+        b.appendChild(field('Format', segRow([['24', '24-hour'], ['12', '12-hour']], plan.format, v => upd(() => { plan.format = v; plan.date = defaultDate(v); plan.start = FORMATS[v].startHour; delete plan.startCustom; plan.items = []; })())));
         const date = el('input'); date.type = 'date'; date.value = plan.date; date.onchange = () => { if (date.value) { plan.date = date.value; save(); render(); } };
-        b.appendChild(field('Start date', date, `Runs ${[plan.start, plan.start + F.dur].map(h => { const x = dh(plan, h); return x.wd + ' ' + Sun.fmt(x.hour); }).join(' to ')} (fixed by the rules).`)); }
+        b.appendChild(field('Start date', date));
+        const tm = el('input'); tm.type = 'time'; tm.step = 60;
+        const hhmm = h => String(Math.floor(h)).padStart(2, '0') + ':' + String(Math.round((h % 1) * 60)).padStart(2, '0');
+        tm.value = hhmm(plan.start);
+        tm.onchange = () => { const m = /^(\d{1,2}):(\d{2})/.exec(tm.value || ''); if (!m) return;
+          const h = +m[1] + +m[2] / 60; if (Math.abs(h - plan.start) < 1e-6) return;
+          plan.start = h; if (Math.abs(h - F.startHour) < 1e-6) delete plan.startCustom; else plan.startCustom = true;
+          delete plan.goAt; save(); render(); };
+        const runs = `Runs ${[plan.start, plan.start + F.dur].map(h => { const x = dh(plan, h); return x.wd + ' ' + Sun.fmt(x.hour); }).join(' to ')}.`;
+        const custom = Math.abs(plan.start - F.startHour) > 1e-6;
+        const tf = field('Start time', tm, custom ? `${runs} Practice start; the comp starts at ${Sun.fmt(F.startHour)}.${plan.items.length ? ' Rebuild the plan so light, check-ins and breaks follow the new time.' : ''}` : `${runs} Official start. Change it for a practice run.`);
+        if (custom) { const rs = el('button', 'btn small', `Reset to ${Sun.fmt(F.startHour)}`); rs.type = 'button';
+          rs.onclick = () => { plan.start = F.startHour; delete plan.startCustom; delete plan.goAt; save(); render(); }; tf.appendChild(rs); }
+        b.appendChild(tf); }
 
       // ---- Goals ----
       { const sum = sel.length ? sel.map(k => GOALS[k].replace(/ \(.*\)/, '') + (targetOf(plan, k) ? ' ' + targetOf(plan, k).toLocaleString() : '')).join(' + ') : 'none yet';

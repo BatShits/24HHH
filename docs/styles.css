@@ -230,7 +230,7 @@ textarea { width: 100%; margin-top: 10px; border: 1px solid var(--line); backgro
 .btn.danger { color: var(--stiff); border-color: var(--stiff); }
 .setup { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-l); padding: 0 14px 14px; margin-bottom: 14px; }
 .setup summary { padding: 12px 0; font-weight: 700; cursor: pointer; }
-.setup input[type=text], .setup input[type=date], .setup select { border: 1px solid var(--line); background: var(--bg); border-radius: var(--radius-s); padding: 8px 10px; color: var(--ink); max-width: 100%; }
+.setup input[type=text], .setup input[type=date], .setup input[type=time], .setup select { border: 1px solid var(--line); background: var(--bg); border-radius: var(--radius-s); padding: 8px 10px; color: var(--ink); max-width: 100%; }
 .pfield { display: flex; flex-direction: column; gap: 5px; margin: 0 0 14px; }
 .plabel { font-size: .85rem; color: var(--muted); }
 .hint.small, .small { font-size: .82rem; }
