@@ -37,7 +37,7 @@ for i, r in enumerate(csv.DictReader(open(os.path.join(SRC, 'hcr_routes_master.c
         'side': side(r['area']), 'g': grade, 'gu': units(grade), 'pts': num(r['comp_points'], int),
         'mpg': r['mp_rating'], 'type': r['comp_style'] or (r['mp_type'].split(',')[0].strip().lower() if r['mp_type'] else ''),
         'ht': num(r['comp_height_ft'], int) or num(r['length_ft'], int), 'stars': num(r['mp_stars']),
-        'z26': 1 if r['zack_2026'] else 0, 'votes': num(r['grade_votes'], int), 'dg': num(r['crowd_grade_delta']),
+        'votes': num(r['grade_votes'], int), 'dg': num(r['crowd_grade_delta']),
         'ft': num(r['first_try_rate']), 'ftp': num(r['first_try_vs_peers']),
         'soft': num(r['soft_mentions'], int), 'stiff': num(r['stiff_mentions'], int), 'pol': num(r['polish_mentions'], int),
         'reach': num(r['reach_mentions'], int), 'bar': num(r['points_bargain'], int), 'sc': num(r['softness_score']),

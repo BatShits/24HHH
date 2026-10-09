@@ -15,6 +15,7 @@
 
   const defaults = { q: '', gmin: '5.2', gmax: '5.14a', side: [], type: [], feel: [], sun: [], list: [], fit: [], sort: 'walk', date: '', hour: 13, theme: 'auto', tab: 'routes', layer: 'topo', map: null, mapMode: 'all' };
   const ui = Object.assign({}, defaults, store.get('hhh.ui', {}));
+  if (Array.isArray(ui.list)) ui.list = ui.list.filter(x => x !== 'z26'); // retired "Climbed in 2026" filter
   if (!Array.isArray(ui.fit)) ui.fit = [];
   let notes = store.get('hhh.notes', {});
   const blankProfile = () => ({ name: '', pro: '', age: '', onsight: '', project: '', ht: '', ape: 0 });
@@ -157,7 +158,6 @@
       for (const l of ui.list) {
         if (l === 'target' && r.tier !== 'target') return false;
         if (l === 'avoid' && r.tier !== 'avoid for points') return false;
-        if (l === 'z26' && !r.z26) return false;
         if (l === 'mine' && !notes[r.id]) return false;
         if (l === 'comp' && !r.n) return false;
       }
@@ -250,7 +250,6 @@
     const facts = el('dl', 'facts');
     row(facts, 'Points', r.pts); row(facts, 'Style', r.type); row(facts, 'Height', r.ht ? r.ht + ' ft' : '');
     row(facts, 'MP grade', r.mpg && r.mpg !== r.g ? r.mpg : ''); row(facts, 'MP stars', r.stars != null ? r.stars.toFixed(1) : '');
-    row(facts, 'Climbed 2026', r.z26 ? 'Yes' : '');
     d.appendChild(facts);
     const phSlot = el('div'); d.appendChild(phSlot);
     if (window.WallPhotos) WallPhotos.forRoute(r.id).then(w => { if (w) { w.classList.add('d-sec'); phSlot.appendChild(w); } });
