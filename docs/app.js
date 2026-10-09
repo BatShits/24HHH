@@ -130,6 +130,34 @@
     return 'beyond';
   }
   const FITLABEL = { onsight: 'Onsight range', push: 'Push', project: 'Project', beyond: 'Above project' };
+  // Per-climber target and avoid lists, worked out from the climber's onsight grade (5.10a if not set):
+  // comp routes from two grade steps under onsight up to the project grade (onsight + 2 if not set).
+  // Targets: soft or leaning soft, or on grade and paying well over the crowd grade; best 7 per grade band.
+  // Avoid: stiff or leaning stiff and paying no more than the crowd grade; the 12 stiffest.
+  let tierKey = null, tiers = {};
+  const TBAND = 7, TAVOID = 12;
+  function tierWindow(p) {
+    const os = p && p.onsight ? GU(p.onsight) : 0, pg = p && p.project ? GU(p.project) : os + 2;
+    return { lo: os - 2, hi: Math.max(pg, os), set: !!(p && p.onsight) };
+  }
+  const bandOf = g => g.replace(/[+-]$/, '').replace(/^(5\.1[0-4])([abcd])$/, (m0, b, l) => b + (/[ab]/.test(l) ? 'a/b' : 'c/d'));
+  function computeTiers() {
+    const p = profiles.me, k = [p.onsight, p.project, p.ht, p.ape].join('|');
+    if (k === tierKey) return tiers;
+    tierKey = k; tiers = {};
+    const w = tierWindow(p);
+    const pool = ROUTES.filter(r => r.n && r.gu != null && r.gu >= w.lo - 0.01 && r.gu <= w.hi + 0.01 && reachOf(r, p) !== 'high');
+    const score = r => (r.sc || 0) + (r.bar || 0) / 20 + (r.stars || 0) * 0.3 + Math.min(r.votes || 0, 40) / 40;
+    const bands = {};
+    pool.filter(r => r.v === 'soft' || r.v === 'leans soft' || (r.v === 'on grade' && (r.bar || 0) >= 25))
+      .forEach(r => (bands[bandOf(r.g)] = bands[bandOf(r.g)] || []).push(r));
+    for (const list of Object.values(bands)) list.sort((a, b) => score(b) - score(a)).slice(0, TBAND).forEach(r => { tiers[r.id] = 'target'; });
+    pool.filter(r => (r.v === 'stiff' || r.v === 'leans stiff') && (r.bar || 0) <= 0)
+      .sort((a, b) => (a.sc || 0) - (b.sc || 0)).slice(0, TAVOID).forEach(r => { tiers[r.id] = 'avoid'; });
+    return tiers;
+  }
+  const tierOf = r => computeTiers()[r.id] || '';
+
   function reachOf(r, p) {
     if (!r.reach || !p || !p.ht) return '';
     const span = +p.ht + (+p.ape || 0);   // wingspan in inches
@@ -156,8 +184,8 @@
     }
     if (ui.list.length) {
       for (const l of ui.list) {
-        if (l === 'target' && r.tier !== 'target') return false;
-        if (l === 'avoid' && r.tier !== 'avoid for points') return false;
+        if (l === 'target' && tierOf(r) !== 'target') return false;
+        if (l === 'avoid' && tierOf(r) !== 'avoid') return false;
         if (l === 'mine' && !notes[r.id]) return false;
         if (l === 'comp' && !r.n) return false;
       }
@@ -208,8 +236,8 @@
       const g = el('span', 'grade ' + (feelOf(r) ? 'feel-' + feelOf(r) : ''), r.g || '?');
       const mid = el('span', 'mid');
       const nm = el('span', 'name', r.name);
-      if (r.tier === 'target') nm.appendChild(el('span', 'flag target', 'Target'));
-      if (r.tier === 'avoid for points') nm.appendChild(el('span', 'flag avoid', 'Avoid'));
+      if (tierOf(r) === 'target') nm.appendChild(el('span', 'flag target', 'Target'));
+      if (tierOf(r) === 'avoid') nm.appendChild(el('span', 'flag avoid', 'Avoid'));
       const fit = fitOf(r, profiles.me); if (fit && fit !== 'onsight') nm.appendChild(el('span', 'flag fit-' + fit, FITLABEL[fit]));
       const rch = reachOf(r, profiles.me); if (rch === 'high' || rch === 'moderate') nm.appendChild(el('span', 'flag reach-' + rch, 'Reachy'));
       const sub = el('span', 'sub', [r.n ? 'No. ' + r.n : 'Not in comp', r.type, r.ht ? r.ht + ' ft' : ''].filter(Boolean).join(', '));
@@ -442,9 +470,11 @@
     b.appendChild(el('p', null, 'Rule of thumb: East side in the morning, West side after noon, North Forty early, late, and overnight.'));
 
     b.appendChild(el('h3', null, 'Target list'));
-    b.appendChild(el('p', 'hint', 'Routes the Mountain Project data says climb easier than the comp pays for, 5.8 to 5.11a. Tap one for details.'));
+    { const p = profiles.me, w = tierWindow(p), gl = u => GRADES.find(g => Math.abs(GU(g) - u) < 0.01) || '';
+      const who = w.set ? `${p.name ? p.name + ', ' : ''}from your onsight grade (${p.onsight})` : 'for a 5.10a onsight climber until you set your grades in Climber Setup';
+      b.appendChild(el('p', 'hint', `Comp routes the Mountain Project data says climb easier than the comp pays for, ${gl(w.lo)} to ${gl(w.hi)}, ${who}.${p.ht ? ' Routes reachy for your height are left out.' : ''} Tap one for details.`)); }
     const bands = {};
-    ROUTES.filter(r => r.tier === 'target').forEach(r => { const k = r.g.replace(/[+-]$/, '').replace(/^(5\.1[01])[abcd]$/, (m0, p) => p === '5.10' ? (/[ab]$/.test(r.g) ? '5.10a/b' : '5.10c/d') : p); (bands[k] = bands[k] || []).push(r); });
+    ROUTES.filter(r => tierOf(r) === 'target').forEach(r => { const k = bandOf(r.g); (bands[k] = bands[k] || []).push(r); });
     for (const k of Object.keys(bands).sort((a, c) => GU(a.split('/')[0]) - GU(c.split('/')[0]))) {
       b.appendChild(el('h4', null, k));
       const ol = el('ol', 'routes compact');
@@ -458,8 +488,9 @@
       b.appendChild(ol);
     }
     b.appendChild(el('h3', null, 'Avoid for points'));
+    b.appendChild(el('p', 'hint', 'Stiff for the grade in the same range: the comp pays less than the crowd grade.'));
     const av = el('ol', 'routes compact');
-    ROUTES.filter(r => r.tier === 'avoid for points').forEach(r => {
+    ROUTES.filter(r => tierOf(r) === 'avoid').sort((x, y) => (x.gu ?? 0) - (y.gu ?? 0)).forEach(r => {
       const li = el('li', 'route'); li.dataset.id = r.id;
       li.append(el('span', 'grade feel-stiff', r.g), el('span', 'mid', r.name), el('span', 'right', r.pts));
       li.onclick = () => openDetail(r.id); av.appendChild(li);

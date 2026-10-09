@@ -42,7 +42,7 @@ for i, r in enumerate(csv.DictReader(open(os.path.join(SRC, 'hcr_routes_master.c
         'soft': num(r['soft_mentions'], int), 'stiff': num(r['stiff_mentions'], int), 'pol': num(r['polish_mentions'], int),
         'reach': num(r['reach_mentions'], int), 'bar': num(r['points_bargain'], int), 'sc': num(r['softness_score']),
         'v': r['verdict'], 'mp': r['mp_url'].rsplit('/', 1)[-1] if r['mp_url'] else '', 'walk': num(r['walk_order']),
-        'tier': t['tier'] if t else '', 'tnote': t['note'] if t else '',
+        'tnote': t['note'] if t else '',
         'sunflag': 1 if r.get('route_sun_notes') else 0,
         'zn': ZONE_OF.get(r['comp_zone']) if r['comp_num'] else None,
         'zp': 1 if r['comp_num'] and (ZONE_OF.get(r['comp_zone']) not in ZONE_CONFIRMED or r['comp_zone'] in ZONE_PROVISIONAL_WALLS) else 0,
