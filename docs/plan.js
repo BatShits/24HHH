@@ -1286,6 +1286,59 @@
       return '5.' + (10 + Math.floor(gu / 4)) + 'abcd'[Math.min(3, Math.floor(gu % 4))];
     }
     const GU2 = L => { const m = /^5\.(\d+)([abcd])?/.exec(L); if (!m) return -9; const n = +m[1]; return n >= 10 ? (n - 10) * 4 + (m[2] ? 'abcd'.indexOf(m[2]) : 0) : n - 10; };
+    // Grade over time: every planned route as a dot (x = planned start, y = grade), night shaded, onsight lines dashed.
+    function timeChart(plan, tl) {
+      const F = FORMATS[plan.format], t0 = plan.start, t1 = plan.start + F.dur;
+      const pts = tl.rows.filter(r => r.kind === 'route').map(r => ({ t: r.t0, b: GU2(gradeLabel(r.r.gu, r.r.g)), L: gradeLabel(r.r.gu, r.r.g), row: r }));
+      const box = el('figure', 'timechart'); box.appendChild(el('figcaption', null, 'Grade through the event'));
+      if (!pts.length) return box;
+      const cl = WHO.map(k => climber(plan, k)), osB = cl.map(c => c.raw.onsight ? GU2(gradeLabel(c.os, '')) : null);
+      const bs = pts.map(p => p.b).concat(osB.filter(v => v != null));
+      const lo = Math.min(...bs), hi = Math.max(...bs), levels = [];
+      for (let b = lo; b <= hi; b++) levels.push(b);
+      const W = 320, padL = 34, padR = 8, padT = 6, rowH = 17, H = padT + levels.length * rowH + 22, plotW = W - padL - padR;
+      const X = t => padL + (t - t0) / (t1 - t0) * plotW, Y = b => padT + (hi - b) * rowH + rowH / 2;
+      const NS = 'http://www.w3.org/2000/svg', mk = (tag, a, txt) => { const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); if (txt != null) e.textContent = txt; return e; };
+      const svg = mk('svg', { viewBox: `0 0 ${W} ${H}`, class: 'tc-svg', role: 'img', 'aria-label': `Planned route grades from ${fmtAbs(plan, t0, true)} to ${fmtAbs(plan, t1, true)}` });
+      // dusk and night bands
+      const step = 0.25; let cur = null, from = t0;
+      const band = (a, b2, lt) => { if (lt !== 'day') svg.appendChild(mk('rect', { x: X(a), y: padT, width: Math.max(0, X(b2) - X(a)), height: levels.length * rowH, class: 'tc-' + lt })); };
+      for (let t = t0; t <= t1 + 1e-9; t += step) { const lt = light(plan, Math.min(t, t1)); if (cur === null) cur = lt; if (lt !== cur) { band(from, t, cur); cur = lt; from = t; } }
+      band(from, t1, cur);
+      // grade rows and labels (label every row while it fits, else every other one)
+      const every = levels.length > 14 ? 2 : 1;
+      levels.forEach((b, i) => {
+        svg.appendChild(mk('line', { x1: padL, x2: W - padR, y1: Y(b), y2: Y(b), class: 'tc-grid' }));
+        if (i % every === 0 || b === hi) svg.appendChild(mk('text', { x: padL - 4, y: Y(b) + 3.5, class: 'tc-yl' }, gradeLabel(b, '')));
+      });
+      // hour ticks
+      const tick = F.dur > 12 ? 3 : 2, short = h => { const x = ((h % 24) + 24) % 24, hr = Math.floor(x), m = Math.round((x - hr) * 60); return (hr % 12 || 12) + (m ? ':' + String(m).padStart(2, '0') : '') + (hr < 12 ? 'a' : 'p'); };
+      for (let t = t0; t <= t1 + 1e-9; t += tick) {
+        const x = X(t), yb = padT + levels.length * rowH;
+        svg.appendChild(mk('line', { x1: x, x2: x, y1: yb, y2: yb + 3, class: 'tc-axis' }));
+        svg.appendChild(mk('text', { x, y: yb + 13, class: 'tc-xl', 'text-anchor': t === t0 ? 'start' : t >= t1 - 1e-9 ? 'end' : 'middle' }, short(t)));
+      }
+      // onsight lines
+      const sameOs = osB[0] != null && osB[0] === osB[1];
+      osB.forEach((b, i) => { if (b == null || (sameOs && i)) return;
+        svg.appendChild(mk('line', { x1: padL, x2: W - padR, y1: Y(b), y2: Y(b), class: 'tc-os' + (sameOs ? '' : ' c' + i) }));
+        svg.appendChild(mk('text', { x: W - padR - 2, y: Y(b) - 3, class: 'tc-osl', 'text-anchor': 'end' }, 'onsight' + (sameOs ? '' : ' ' + cl[i].name))); });
+      // dots: both climbers in accent, one climber in their colour; done routes get a green ring
+      for (const p of pts) {
+        const both = p.row.who.length > 1, ci = both ? 0 : WHO.indexOf(p.row.who[0]);
+        const c = mk('circle', { cx: X(p.t), cy: Y(p.b) + (both ? 0 : ci ? 3 : -3), r: 3.2, class: 'tc-dot ' + (both ? 'both' : 'c' + ci) + (p.row.done ? ' done' : '') });
+        c.appendChild(mk('title', {}, `${fmtAbs(plan, p.t, true)} · ${p.L} ${p.row.r.name}${both ? '' : ' (' + cl[ci].name + ')'}`));
+        svg.appendChild(c);
+      }
+      box.appendChild(svg);
+      const key = el('p', 'gc-key');
+      const sw = (cls, txt) => { const s2 = el('span'); s2.append(el('i', 'tc-sw ' + cls), document.createTextNode(txt)); key.appendChild(s2); };
+      if (pts.some(p => p.row.who.length > 1)) sw('both', 'Both');
+      WHO.forEach((k, i) => { if (pts.some(p => p.row.who.length === 1 && p.row.who[0] === k)) sw('c' + i, cl[i].name + ' only'); });
+      sw('night', 'Dark'); if (pts.some(p => p.row.done)) sw('done', 'Done');
+      box.appendChild(key);
+      return box;
+    }
     function gradeChart(plan, tl) {
       const counts = {}, order = {};
       for (const row of tl.rows) if (row.kind === 'route') {
@@ -1377,6 +1430,7 @@
       teamRow('Walk : climb', `1 : ${walkM ? (climbM / walkM).toFixed(1) : '∞'} (${hm(walkM)} walking, ${hm(climbM)} climbing)`);
       const grid = el('div', 'sumgrid'); grid.append(tbl, gradeChart(plan, tl)); sec.appendChild(grid);
       const lb = grid.querySelector('.gc-limits'); if (lb) sec.appendChild(lb); // full width under the table and chart
+      sec.appendChild(timeChart(plan, tl));
       // why the two lists differ: the inputs each climber was planned with, and routes only one of you leads
       const solo = WHO.map(k => plan.items.filter(it => it.who && it.who.length === 1 && it.who[0] === k).length);
       const inp = WHO.map(k => { const c = climber(plan, k), p = c.raw;

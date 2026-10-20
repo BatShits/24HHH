@@ -586,3 +586,24 @@ select, input, textarea, button { max-width: 100%; }
 .guide details > :not(summary) { margin: 0 14px 12px; font-size: .95rem; }
 .guide ol { padding-left: 1.2em; }
 .guide li { margin-bottom: 6px; }
+/* grade-through-the-event chart under the routes-by-grade chart */
+.timechart { margin: 14px 0 6px; max-width: 680px; }
+.timechart figcaption { font-size: .9rem; font-weight: 600; padding: 6px 0; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+.tc-svg { display: block; width: 100%; height: auto; font-variant-numeric: tabular-nums; }
+.tc-grid { stroke: var(--line); stroke-width: .6; }
+.tc-axis { stroke: var(--muted); stroke-width: .8; }
+.tc-yl { font-size: 10.5px; fill: var(--muted); text-anchor: end; }
+.tc-xl { font-size: 10.5px; fill: var(--muted); }
+.tc-night { fill: var(--sky-night); opacity: .22; }
+.tc-dusk { fill: var(--sky-dusk); opacity: .16; }
+.tc-os { stroke: var(--stiff); stroke-width: 1; stroke-dasharray: 4 3; }
+.tc-os.c1 { stroke: var(--shade); }
+.tc-osl { font-size: 9.5px; fill: var(--stiff); }
+.tc-dot { stroke: var(--surface); stroke-width: .8; }
+.tc-dot.both, .tc-dot.c0 { fill: var(--accent); }
+.tc-dot.c1 { fill: var(--shade); }
+.tc-dot.done { stroke: var(--soft); stroke-width: 1.6; }
+.tc-sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 4px; vertical-align: -1px; background: var(--accent); }
+.tc-sw.c1 { background: var(--shade); }
+.tc-sw.night { border-radius: 2px; background: var(--sky-night); opacity: .45; }
+.tc-sw.done { background: none; border: 2px solid var(--soft); }
