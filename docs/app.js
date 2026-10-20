@@ -424,12 +424,29 @@
     const w = Sun.windows(a.aspect, ui.date);
     sh.appendChild(el('p', 'hint', (w.length ? 'Direct sun ' + w.map(v => Sun.fmt(v[0]) + ' to ' + Sun.fmt(v[1])).join(', ') + '. ' : '') + (a.note || '')));
     const ol = el('ol', 'routes compact');
-    ROUTES.filter(r => r.area === name && matches(r)).sort(SORTS.walk).forEach(r => {
-      const li = el('li', 'route'); li.dataset.id = r.id;
-      li.append(el('span', 'grade ' + (feelOf(r) ? 'feel-' + feelOf(r) : ''), r.g), el('span', 'mid', r.name), el('span', 'right', r.pts || ''));
-      li.onclick = () => openDetail(r.id); ol.appendChild(li);
-    });
-    if (!ol.children.length) ol.appendChild(el('li', 'empty', 'No routes here match your filters.'));
+    const wr = ui.mapMode === 'plan' && planner ? planner.wallRoutes(name) : null;
+    if (wr) {
+      ol.classList.add('has-plan');
+      // plan view: the routes the plan's settings allow on this wall, planned ones highlighted with their times
+      const np = wr.rows.filter(x => x.planned.length).length;
+      sh.appendChild(el('p', 'hint small', `${np} of these ${wr.rows.length} routes are in ${wr.plan.name}${wr.hidden ? `; ${wr.hidden} more on this wall are outside the plan's settings` : ''}.`));
+      const first = x => x.planned.length ? x.planned[0].t : 1e9;
+      wr.rows.sort((a, b) => first(a) - first(b) || SORTS.walk(a.r, b.r)).forEach(({ r, planned }) => {
+        const li = el('li', 'route' + (planned.length ? ' inplan' + (planned.every(x => x.done) ? ' done' : '') : '')); li.dataset.id = r.id;
+        const mid = el('span', 'mid', r.name);
+        if (planned.length) mid.appendChild(el('span', 'plan-at', planned.map(x => `${x.done ? '✓ ' : ''}${x.label} · ${x.whoLabel}`).join(', ')));
+        li.append(el('span', 'grade ' + (feelOf(r) ? 'feel-' + feelOf(r) : ''), r.g), mid, el('span', 'right', r.pts || ''));
+        li.onclick = () => openDetail(r.id); ol.appendChild(li);
+      });
+      if (!ol.children.length) ol.appendChild(el('li', 'empty', 'No routes here fit the plan\'s settings.'));
+    } else {
+      ROUTES.filter(r => r.area === name && matches(r)).sort(SORTS.walk).forEach(r => {
+        const li = el('li', 'route'); li.dataset.id = r.id;
+        li.append(el('span', 'grade ' + (feelOf(r) ? 'feel-' + feelOf(r) : ''), r.g), el('span', 'mid', r.name), el('span', 'right', r.pts || ''));
+        li.onclick = () => openDetail(r.id); ol.appendChild(li);
+      });
+      if (!ol.children.length) ol.appendChild(el('li', 'empty', 'No routes here match your filters.'));
+    }
     sh.appendChild(ol);
     sh.dataset.area = name;
     if (window.WallPhotos) WallPhotos.section(name).then(w => { if (sh.dataset.area === name && !sh.hidden) sh.insertBefore(w, ol); });

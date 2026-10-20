@@ -1630,6 +1630,19 @@
     }
 
     // ---------- map data ----------
+    // Routes on one wall for the map's plan view: comp routes that fit the plan's settings (type, side, grade ranges),
+    // plus anything already in the plan, with the planned times (shifted by a late gun) for the planned ones.
+    function wallRoutes(area) {
+      const plan = active(); if (!plan) return null;
+      const tl = plan.items.length ? normRows(timeline(plan, plan.items)) : { rows: [] }, sh = gunShift(plan), at = {};
+      for (const row of tl.rows) if (row.kind === 'route' && row.r.area === area) (at[row.r.id] ||= []).push({ t: row.t0 + sh, who: row.who, done: !!row.done });
+      const inRange = r => { const isTrad = r.type === 'trad', lo = isTrad ? plan.tmin : plan.gmin, hi = isTrad ? plan.tradMax : plan.gmax, b = GU2(gradeLabel(r.gu, r.g));
+        return !(lo && b < GU2(lo)) && !(hi && b > GU2(hi)); };
+      const names = { me: climber(plan, 'me').name, partner: climber(plan, 'partner').name };
+      const rows = ROUTES().filter(r => r.area === area && (at[r.id] || (r.n && !NO_PLAN_AREAS.has(r.area) && planFits(plan, r) && inRange(r))))
+        .map(r => ({ r, planned: (at[r.id] || []).map(x => ({ ...x, label: fmtAbs(plan, x.t, true), whoLabel: x.who.length > 1 ? 'Both' : names[x.who[0]] || (x.who[0] === 'me' ? 'You' : 'Partner') })) }));
+      return { plan, rows, hidden: ROUTES().filter(r => r.area === area).length - rows.length };
+    }
     function mapData() {
       const plan = active(); if (!plan || !plan.items.length) return null;
       const tl = normRows(timeline(plan, plan.items)); const A = AREAS();
@@ -1659,10 +1672,10 @@
       }
       const walls = {};
       for (const s of stops) { const w = walls[s.area] ??= { area: s.area, count: 0, done: 0, visits: [], n: s.n }; w.count += s.count; w.done += s.done; w.visits.push(fmtAbs(plan, s.arrive, true)); }
-      const wallList = Object.values(walls).map(w => ({ ...w, lat: A[w.area]?.lat, lon: A[w.area]?.lon, est: A[w.area]?.est, label: w.visits[0] + (w.visits.length > 1 ? ` +${w.visits.length - 1}` : '') }));
+      const wallList = Object.values(walls).map(w => ({ ...w, lat: A[w.area]?.lat, lon: A[w.area]?.lon, est: A[w.area]?.est, label: w.visits[0] + (w.visits.length > 1 ? ` +${w.visits.length - 1} visit${w.visits.length > 2 ? 's' : ''}` : ''), later: w.visits.slice(1) }));
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { renderGo, importShared, _fixed: FIXED_PACE, _live: liveStats, _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _goalTimes: (p) => goalTimes(p), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
+    return { renderGo, importShared, _fixed: FIXED_PACE, _live: liveStats, _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _goalTimes: (p) => goalTimes(p), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, wallRoutes, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
   };
 })();

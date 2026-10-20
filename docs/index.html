@@ -148,8 +148,48 @@
       <p class="hint">Fill in both of you. Grades set which routes count as in your onsight range, a push, or a project. Height and ape index decide whether reachy routes get flagged for each of you.</p>
       <div class="profiles" id="profiles"></div>
 
+      <h2>User guide</h2>
+      <div class="guide">
+        <details><summary>Getting started</summary>
+          <ol>
+            <li>Fill in both climbers above: name, onsight and project grades, height and ape index. Grades drive the planner, the target list and the onsight / push / project tags. Height flags reachy routes.</li>
+            <li>Tap <b>Save map for offline</b> (under Offline) while you have signal. The ranch has little or none.</li>
+            <li>On an iPhone, add the app to your home screen from Safari's Share menu so it opens full screen and works offline.</li>
+            <li>Build a plan in <b>Planning</b>, then share it with your partner from there.</li>
+          </ol>
+        </details>
+        <details><summary>Routes</summary>
+          <p>Every route at the ranch, grouped by wall in walking order. Tap a wall name to fold it. Search by name or number, or open the filter panel for grade, side, type, sun or shade at the clock time, and lists: Targets (soft for the grade and paying well for you), Avoid for points (stiff for the grade), My notes, In the comp.</p>
+          <p>Tap a route for its details: points, height, Mountain Project grade votes and softness, reach risk for each climber, photos, and your notes. Mark a route Want to try, Tried, Sent or Skip and note how it felt. "Not in comp" means it has no comp number, so laps on it don't count.</p>
+        </details>
+        <details><summary>Navigation (map)</summary>
+          <p>Walls on a topo or aerial map, coloured by sun or shade at the clock time at the top. Drag the clock or its arrows to see how the sun moves. <b>Plan</b> switches to your plan: numbered walls with the first planned arrival time ("+1 visit" means the plan comes back to that wall later), the walking legs, and a dot for where you should be at the clock time. The play button steps through the plan.</p>
+          <p>Tap a wall for its routes, sun times and photos. In plan view the list keeps to the plan's settings and highlights the planned routes with their times. The location button shows where you are; the camera button takes a wall photo you can mark routes on.</p>
+        </details>
+        <details><summary>Planning</summary>
+          <ol>
+            <li><b>Event:</b> 24- or 12-hour, the date, and the start time. Change the start time only for a practice run.</li>
+            <li><b>Goals:</b> pick one or more (laps, points, height, trad laps, Full or Golden Horseshoe, qualifying). The plan meets all of them with a time buffer before the end.</li>
+            <li><b>Push and pace:</b> Don't Hurt Me and Bring it On! plan at their own steady pace and tell you what that reaches. I am Death Incarnate!! finds the least effort that meets your goals, so a lower target means an easier day.</li>
+            <li><b>Climbers, Routes, Where:</b> divisions, grade ranges, sport or trad, warm-up, which side of the canyon, start walls and sun preference.</li>
+            <li>Tap <b>Build recommended plan</b>, or <b>Build it myself</b> to pick routes by hand.</li>
+          </ol>
+          <p>The summary shows when the goals are met, points, zones, achievements, efficiency and a pacing table. Drag routes to reorder them within a wall, or move a whole wall stop. <b>Re-plan the rest</b> rebuilds from where you are. <b>Share</b> shows a QR code your partner scans with "Scan a plan"; it carries the plan, ticks and both profiles.</p>
+        </details>
+        <details><summary>Go Time! (on the day)</summary>
+          <p>Press <b>GO!</b> when the gun fires (it unlocks an hour before the start), so every time runs from the real start. Tick routes off in the plan as you climb. Go Time! shows minutes ahead or behind, routes against plan, your pace, the next route and the next check-in.</p>
+          <p>Two modes: <b>Stats</b>, or <b>Angels vs Demons</b>, where the angel cheers you on and the demon tells you to quit, and the bar shows who's winning. Switch between Both, Angel and Demon at any time. The comp is 18+ and so is the demon.</p>
+        </details>
+        <details><summary>Notes, photos and your partner</summary>
+          <p>Notes, photos and settings stay on this phone. To give them to your partner, use <b>Export notes</b> and send the file; they use <b>Import notes</b>. Tick "Include wall photos" to bring photos along. Plans go through Share instead.</p>
+        </details>
+        <details><summary>Display and updates</summary>
+          <p>Night and Headlamp red themes save your night vision. If the app seems stuck on an old version, use <b>Reload latest version</b> at the bottom; it keeps your notes, profiles, plans and saved map.</p>
+        </details>
+      </div>
+
       <h2>Your notes</h2>
-      <p class="hint">Notes are saved on this phone only. Export them after each trip and send the file to Claude so they get merged into the master data. The export includes both climber profiles.</p>
+      <p class="hint">Notes are saved on this phone only. Export them to back them up or to send to your partner. The export includes both climber profiles.</p>
       <label class="check exp-photos"><input type="checkbox" id="expPhotos"> <span>Include wall photos <span class="hint small" id="expPhotosInfo"></span></span></label>
       <div class="btnrow">
         <button type="button" class="primary" id="btnExport">Export notes</button>
