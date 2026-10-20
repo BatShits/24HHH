@@ -1111,7 +1111,7 @@
       const section = (key, title, sum, openByDefault) => {
         const s = el('details', 'psec'); s.open = so[key] ?? openByDefault;
         s.addEventListener('toggle', () => { so[key] = s.open; });
-        const h = el('summary'); h.append(el('span', 'psec-title', title), el('span', 'psum', sum)); s.appendChild(h);
+        const h = el('summary'); h.append(el('span', 'psec-title', title), el('span', 'psec-sum', sum)); s.appendChild(h);
         const inner = el('div', 'psec-body'); s.appendChild(inner); d.appendChild(s); return inner;
       };
       const fresh = !plan.items.length;
