@@ -17,6 +17,7 @@
   const ui = Object.assign({}, defaults, store.get('hhh.ui', {}));
   if (Array.isArray(ui.list)) ui.list = ui.list.filter(x => x !== 'z26'); // retired "Climbed in 2026" filter
   if (!Array.isArray(ui.fit)) ui.fit = [];
+  ui.feel = []; ui.sun = []; // grade-feel and sun filters retired from the Routes panel
   let notes = store.get('hhh.notes', {});
   const blankProfile = () => ({ name: '', pro: '', age: '', onsight: '', project: '', ht: '', ape: 0 });
   let profiles = store.get('hhh.profiles', null);
@@ -177,7 +178,8 @@
     if (ui.sun.length) { const s = sunFor(r); const k = s === 'partial' ? 'sun' : s === 'dark' ? 'shade' : s; if (!ui.sun.includes(k)) return false; }
     if (ui.fit.length) {
       const f = fitOf(r, profiles.me);
-      const want = ui.fit.filter(x => x !== 'noreach' && x !== 'noabove');
+      if (ui.fit.includes('want') && (notes[r.id] || {}).status !== 'want') return false;
+      const want = ui.fit.filter(x => x !== 'noreach' && x !== 'noabove' && x !== 'want');
       if (want.length && !want.includes(f)) return false;
       if (ui.fit.includes('noabove') && f === 'beyond') return false;
       if (ui.fit.includes('noreach') && ['high', 'moderate'].includes(reachOf(r, profiles.me))) return false;

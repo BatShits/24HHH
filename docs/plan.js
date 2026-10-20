@@ -996,6 +996,9 @@
     let editing = null; // index of item whose actions are open
     const setupOpen = {}; // plan id -> setup panel open?
     const collapsedStops = {}; // plan id -> Set of collapsed stop keys
+    // plan list view filter, per phone: grade range (grade labels) and hide checked-off routes
+    const planView = () => Object.assign({ lo: '', hi: '', hideDone: false }, store.get('hhh.planView', {}));
+    const setPlanView = o => store.set('hhh.planView', Object.assign(planView(), o));
     function render() {
       const y = window.scrollY; requestAnimationFrame(() => window.scrollTo(0, y)); // keep your place while editing
       const body = $('#planBody'); body.textContent = '';
@@ -1554,7 +1557,7 @@
           const gh = dragHandle('Drag to move ' + r.area + ' and its routes'); h.append(addB, gh); G.el = h; G.members.push(h);
           gh.addEventListener('pointerdown', e => startDrag(e, 'wall', groups.indexOf(G)));
           list.appendChild(h); }
-        const li = el('li', 'p-route' + (row.done ? ' done' : '')); li.dataset.i = row.i;
+        const li = el('li', 'p-route' + (row.done ? ' done' : '')); li.dataset.i = row.i; li.dataset.b = GU2(gradeLabel(r.gu, r.g));
         const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!row.done; cb.setAttribute('aria-label', 'Done: ' + r.name);
         cb.onchange = () => { const it = plan.items[row.i]; it.done = cb.checked ? new Date().toISOString() : undefined; save(); render(); ctx.onPlanChange(); };
         const main = el('button', 'p-main'); main.type = 'button';
@@ -1587,12 +1590,28 @@
         }
         list.appendChild(li);
       }
+      // view filter: grade range and hide done; walls left with nothing to show (and the walks to them) are hidden too
+      const pv = planView(), pvOn = !!(pv.lo || pv.hi || pv.hideDone);
+      let shown = 0, total = 0;
+      if (pvOn) {
+        const kids = [...list.children]; let head = null, vis = 0;
+        const closeHead = () => { if (head && !vis) head.hidden = true; };
+        for (const li of kids) {
+          if (li.classList.contains('p-stop')) { closeHead(); head = li; vis = 0; continue; }
+          if (!li.classList.contains('p-route')) continue;
+          total++; const b = +li.dataset.b;
+          const ok = !(pv.lo && b < GU2(pv.lo)) && !(pv.hi && b > GU2(pv.hi)) && !(pv.hideDone && li.classList.contains('done'));
+          if (ok) { vis++; shown++; } else { li.hidden = true; li.dataset.filtered = '1'; }
+        }
+        closeHead();
+        for (let i = 0; i < kids.length; i++) if (kids[i].classList.contains('p-walk')) { const nx = kids.slice(i + 1).find(x => x.classList.contains('p-stop')); if (nx && nx.hidden) kids[i].hidden = true; }
+      }
       // collapsed walls: hide their routes and breaks, show a count on the header
       let hide = false, cnt = null;
       for (const li of list.children) {
         if (li.classList.contains('p-stop')) { hide = li.classList.contains('folded'); cnt = { li, n: 0 }; li._cnt = cnt; continue; }
         if (li.classList.contains('p-walk') || li.classList.contains('p-goalline')) continue;
-        if (li.classList.contains('p-route') && cnt) cnt.n++;
+        if (li.classList.contains('p-route') && cnt && !li.dataset.filtered) cnt.n++;
         if (hide && !li.classList.contains('checkin')) li.hidden = true;
       }
       for (const h of list.querySelectorAll('.p-stop.folded')) h.insertBefore(el('span', 'p-count', h._cnt.n + (h._cnt.n === 1 ? ' route' : ' routes')), h.querySelector('.p-time'));
@@ -1601,6 +1620,17 @@
       const bF = el('button', 'btn', 'Collapse all walls'); bF.type = 'button'; bF.onclick = () => { allKeys.forEach(k => fold.add(k)); render(); };
       const bE = el('button', 'btn', 'Expand all'); bE.type = 'button'; bE.onclick = () => { fold.clear(); render(); };
       bar.append(bF, bE); body.appendChild(bar);
+      // show only some grades, or hide what's checked off (this phone only; the plan itself doesn't change)
+      { const fb = el('div', 'plan-filter');
+        const labels = [...new Set(tl.rows.filter(x => x.kind === 'route').map(x => gradeLabel(x.r.gu, x.r.g)))].filter(L => L !== '?').sort((a, b) => GU2(a) - GU2(b));
+        const gs = (val, any, aria, key) => { const sl = el('select'); sl.setAttribute('aria-label', aria); sl.add(new Option(any, ''));
+          for (const L of labels) sl.add(new Option(L, L)); sl.value = labels.includes(val) ? val : ''; sl.onchange = () => { setPlanView({ [key]: sl.value }); render(); }; return sl; };
+        const row1 = el('div', 'target-row'); row1.append(el('span', 'plabel', 'Show grades'), gs(pv.lo, 'Lowest: any', 'Lowest grade to show', 'lo'), el('span', null, 'to'), gs(pv.hi, 'Highest: any', 'Highest grade to show', 'hi'));
+        fb.appendChild(row1);
+        fb.appendChild(toggle('Hide routes already checked off', pv.hideDone, v => { setPlanView({ hideDone: v }); render(); }));
+        if (pvOn) { const p2 = el('p', 'hint small', `Showing ${shown} of ${total} planned routes. `); const clr = el('button', 'linkish', 'Show all'); clr.type = 'button';
+          clr.onclick = () => { setPlanView({ lo: '', hi: '', hideDone: false }); render(); }; p2.appendChild(clr); fb.appendChild(p2); }
+        body.appendChild(fb); }
       body.appendChild(list);
       const add = el('div', 'btnrow');
       const wsel = el('select'); wsel.setAttribute('aria-label', 'Add routes from a wall'); wsel.add(new Option(plan.items.length ? 'Add routes from a wall…' : 'Start at a wall…', ''));

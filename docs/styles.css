@@ -569,7 +569,8 @@ a.button { color: inherit; text-decoration: none; }
 
 /* Nothing may push the page wider than the screen: long words and names wrap, form controls shrink. */
 html, body { max-width: 100%; overflow-wrap: break-word; }
-p, li, label, legend, summary, h1, h2, h3, h4, dd, dt, .warn, .hint, .p-name, .p-tags, .mid, .sub, .tg-text, .plabel { overflow-wrap: anywhere; }
+p, li, label, legend, summary, h1, h2, h3, h4, dd, dt, .warn, .hint, .p-name, .p-tags, .mid, .sub, .tg-text, .plabel { overflow-wrap: break-word; }
+.p-main .grade, .p-main .p-time, .p-num { overflow-wrap: normal; white-space: nowrap; }
 select, input, textarea, button { max-width: 100%; }
 .view > *, .psec, .pfield, .target-row > * { min-width: 0; }
 .target-row { flex-wrap: wrap; }
@@ -607,3 +608,13 @@ select, input, textarea, button { max-width: 100%; }
 .tc-sw.c1 { background: var(--shade); }
 .tc-sw.night { border-radius: 2px; background: var(--sky-night); opacity: .45; }
 .tc-sw.done { background: none; border: 2px solid var(--soft); }
+/* plan list view filter */
+.plan-filter { border: 1px solid var(--line); border-radius: var(--radius-s); padding: 8px 10px; margin: 8px 0; background: var(--surface); }
+.plan-filter .target-row { gap: 8px; }
+.plan-filter select { border: 1px solid var(--line); background: var(--bg); border-radius: var(--radius-s); padding: 6px 8px; color: var(--ink); }
+.linkish { border: 0; background: none; padding: 0; color: var(--accent); text-decoration: underline; font: inherit; cursor: pointer; }
+/* narrow phones: route name gets its own full-width line in the plan list instead of a sliver next to the grade */
+@media (max-width: 420px) {
+  .p-main { grid-template-columns: auto auto minmax(0, 1fr); grid-template-areas: "c t g" "n n n" "x x x"; }
+  .p-tags { padding-left: 0; }
+}
