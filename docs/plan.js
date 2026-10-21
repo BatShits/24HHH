@@ -1480,6 +1480,21 @@
       body.appendChild(sec);
     }
 
+    // Handoff to the official "24 Hours of Horseshoe Hell" app: ticking a route copies its comp number, which that
+    // app's search box finds. Runs inside the tap, so the clipboard is allowed; unticking never copies.
+    function copyForComp(r) {
+      if (!r || !r.n) return;
+      const txt = String(r.n), done = ok => showToast(ok ? `Copied #${txt} for the Horseshoe Hell app` : `Couldn't copy #${txt}`);
+      const fallback = () => { const ta = document.createElement('textarea'); ta.value = txt; ta.setAttribute('readonly', ''); ta.style.cssText = 'position:fixed;top:0;left:0;opacity:0';
+        document.body.appendChild(ta); ta.select(); ta.setSelectionRange(0, txt.length); let ok = false; try { ok = document.execCommand('copy'); } catch (e) {} ta.remove(); done(ok); };
+      try { if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(txt).then(() => done(true), fallback); else fallback(); } catch (e) { fallback(); }
+    }
+    let toastT = 0;
+    function showToast(msg) {
+      let t = document.getElementById('planToast'); if (!t) { t = el('div', 'photo-toast'); t.id = 'planToast'; t.setAttribute('role', 'status'); document.body.appendChild(t); }
+      t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => { t.hidden = true; }, 2500);
+    }
+
     function renderItems(body, plan) {
       const tl = normRows(timeline(plan, plan.items));
       const list = el('ol', 'plan-list');
@@ -1559,7 +1574,7 @@
           list.appendChild(h); }
         const li = el('li', 'p-route' + (row.done ? ' done' : '')); li.dataset.i = row.i; li.dataset.b = GU2(gradeLabel(r.gu, r.g));
         const cb = el('input'); cb.type = 'checkbox'; cb.checked = !!row.done; cb.setAttribute('aria-label', 'Done: ' + r.name);
-        cb.onchange = () => { const it = plan.items[row.i]; it.done = cb.checked ? new Date().toISOString() : undefined; save(); render(); ctx.onPlanChange(); };
+        cb.onchange = () => { const it = plan.items[row.i]; it.done = cb.checked ? new Date().toISOString() : undefined; if (cb.checked) copyForComp(r); save(); render(); ctx.onPlanChange(); };
         const main = el('button', 'p-main'); main.type = 'button';
         main.append(el('span', 'p-num', '#' + (++climbN)), el('span', 'p-time', Sun.fmt(dh(plan, row.t0).hour)), el('span', 'grade ' + (ctx.feelOf(r) ? 'feel-' + ctx.feelOf(r) : ''), r.g), el('span', 'p-name', r.name));
         const tags = el('span', 'p-tags');
