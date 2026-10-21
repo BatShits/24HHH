@@ -773,6 +773,94 @@
       if (!list.length) return null;
       return list[hashStr(who + key + seed + plan.id) % list.length];
     }
+    // ---------- scorecard: what each climber has ticked, in comp-number order to copy onto the official card or app ----------
+    // One counted lap per route per climber. Tick time = when the box was ticked (real Chicago clock); event hours run from the gun.
+    function scorecard(plan) {
+      const sh = gunShift(plan), seen = { me: new Set(), partner: new Set() }, rows = { me: [], partner: [] };
+      const done = plan.items.map((it, i) => ({ it, i, r: it.rid && byId[it.rid] })).filter(x => x.r && x.it.done).sort((a, b) => a.it.done < b.it.done ? -1 : 1);
+      const st = blankStats(plan);
+      for (const x of done) {
+        const clk = clockOf(plan, Date.parse(x.it.done)), at = clk - sh, who = x.it.who || WHO;
+        applyRoute(plan, st, x.r, who, at);
+        for (const k of who) { if (!rows[k] || seen[k].has(x.r.id)) continue; seen[k].add(x.r.id); rows[k].push({ r: x.r, done: x.it.done, clk, at }); }
+      }
+      const out = {}, bothHours = WHO.every(k => achievements(plan, st[k]).hoursAll); // One Each Hour needs both climbers every hour
+      for (const k of WHO) {
+        const s = st[k], a = achievements(plan, s), F = FORMATS[plan.format];
+        const east = s.east ? 300 : 0, hour = bothHours && F.hourBonus ? F.hourBonus : 0;
+        out[k] = { name: climber(plan, k).name, rows: rows[k].sort((p, q) => (p.r.n || 9999) - (q.r.n || 9999)), pts: s.pts, east, hour, total: s.pts + east + hour, laps: s.laps, trad: s.trad, ft: s.ft, hoursCovered: s.hours.size, hoursAll: a.hoursAll, bothHours };
+      }
+      return out;
+    }
+    function renderScorecard(box, plan) {
+      const sc = scorecard(plan), who = WHO.includes(ui.cardWho) ? ui.cardWho : 'me', F = FORMATS[plan.format];
+      const seg = el('div', 'chips seg');
+      for (const k of WHO) { const b = el('button', null, sc[k].name); b.type = 'button'; b.setAttribute('aria-pressed', k === who); b.onclick = () => { ui.cardWho = k; ctx.saveUi(); renderGo(box); }; seg.appendChild(b); }
+      box.appendChild(seg);
+      const c = sc[who];
+      // 24-hour: the first card goes in at the evening check-in, so split the list at the moment you say you handed it in
+      let part = 'all', rows = c.rows;
+      if (plan.format === '24') {
+        const cut = plan.card1At ? clockOf(plan, Date.parse(plan.card1At)) : null;
+        if (cut != null) {
+          part = ['all', 'c1', 'c2'].includes(ui.cardPart) ? ui.cardPart : 'c2';
+          const ps = el('div', 'chips seg');
+          for (const [v, lab] of [['c1', 'Card 1'], ['c2', 'Card 2'], ['all', 'All']]) { const b = el('button', null, lab); b.type = 'button'; b.setAttribute('aria-pressed', v === part); b.onclick = () => { ui.cardPart = v; ctx.saveUi(); renderGo(box); }; ps.appendChild(b); }
+          box.appendChild(ps);
+          rows = part === 'c1' ? c.rows.filter(x => x.clk <= cut) : part === 'c2' ? c.rows.filter(x => x.clk > cut) : c.rows;
+          const p2 = el('p', 'hint small', `Card 1 turned in at ${fmtAbs(plan, cut, true)}. `); const u = el('button', 'linkish', 'Undo'); u.type = 'button';
+          u.onclick = () => { delete plan.card1At; save(); renderGo(box); }; p2.appendChild(u); box.appendChild(p2);
+        } else {
+          const b = el('button', 'btn', 'I turned in card 1'); b.type = 'button';
+          b.onclick = () => { plan.card1At = new Date().toISOString(); ui.cardPart = 'c2'; ctx.saveUi(); save(); renderGo(box); };
+          const row = el('div', 'btnrow'); row.appendChild(b); box.appendChild(row);
+          box.appendChild(el('p', 'hint small', 'Paper cards on the 24-hour: the first one goes in at the 9:30 to 10:30 pm check-in. Tap this when you hand it in, and the list splits into Card 1 and Card 2.'));
+        }
+      }
+      const sum = rows.reduce((a, x) => a + (x.r.pts || 0), 0);
+      box.appendChild(el('p', 'hint', rows.length ? `${rows.length} route${rows.length === 1 ? '' : 's'} for ${c.name}, in comp-number order to match the scorecard. Trad routes: mark PP or RP on the card yourself.` : `Nothing ticked for ${c.name}${part === 'c2' ? ' since card 1' : ''} yet. Tick routes off in the Planning tab as you climb.`));
+      if (rows.length) {
+        const t = el('table', 'sumtable cardtable'), th = el('thead'), hr = el('tr');
+        for (const h of ['#', 'Route', 'Grade', 'Pts', 'Ticked']) hr.appendChild(el('th', null, h));
+        th.appendChild(hr); t.appendChild(th); const tb = el('tbody');
+        for (const x of rows) {
+          const tr = el('tr'); const nm = el('td', null, x.r.name);
+          if (x.r.type === 'trad') nm.appendChild(el('span', 'tag trad', 'Trad'));
+          tr.append(el('td', 'c-n', x.r.n ? String(x.r.n) : '–'), nm, el('td', null, x.r.g), el('td', 'c-p', String(x.r.pts || 0)), el('td', 'c-t', fmtAbs(plan, x.clk, true)));
+          tb.appendChild(tr);
+        }
+        t.appendChild(tb); box.appendChild(t);
+      }
+      const tt = el('table', 'sumtable cardtotals'), tb2 = el('tbody');
+      const tr = (a, b, cls) => { const r = el('tr', cls || ''); r.append(el('th', null, a), el('td', null, b)); tb2.appendChild(r); };
+      if (part !== 'all') tr(part === 'c1' ? 'Card 1 route points' : 'Card 2 route points', sum.toLocaleString());
+      tr('Routes (whole event)', String(c.laps));
+      tr('Route points', c.pts.toLocaleString());
+      tr('East Side bonus', c.east ? '+300' : 'not yet (one east-side route)');
+      if (F.hourBonus) tr('One Each Hour bonus', c.bothHours ? '+' + F.hourBonus : c.hoursAll ? 'not yet (your partner is missing an hour)' : `not yet (${c.hoursCovered} of ${F.dur} hours)`);
+      tr('Total', c.total.toLocaleString(), 'team');
+      tt.appendChild(tb2); box.appendChild(tt);
+      box.appendChild(el('p', 'hint small', (F.hourBonus ? 'The One Each Hour bonus needs a route every hour from both of you. ' : '') + 'Export a spreadsheet with tick times from Climber Setup.'));
+    }
+    // CSV for spreadsheets: one row per counted route per climber, then totals
+    function scorecardCSV(plan) {
+      const sc = scorecard(plan), q = v => { const t = String(v ?? ''); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
+      const lines = [['Climber', 'Comp #', 'Route', 'Wall', 'Grade', 'Type', 'Height (ft)', 'Points', 'Date', 'Time', 'Hours into event'].join(',')];
+      for (const k of WHO) {
+        const c = sc[k];
+        for (const x of [...c.rows].sort((a, b) => a.at - b.at || (a.r.n || 9999) - (b.r.n || 9999))) {
+          const d = dh(plan, x.clk);
+          lines.push([c.name, x.r.n || '', x.r.name, x.r.area, x.r.g, x.r.type, x.r.ht || '', x.r.pts || 0, d.ymd, Sun.fmt(d.hour), (x.at - plan.start).toFixed(2)].map(q).join(','));
+        }
+        lines.push([c.name, '', 'Route points', '', '', '', c.ft, c.pts].map(q).join(','));
+        lines.push([c.name, '', 'East Side bonus', '', '', '', '', c.east].map(q).join(','));
+        if (FORMATS[plan.format].hourBonus) lines.push([c.name, '', 'One Each Hour bonus', '', '', '', '', c.hour].map(q).join(','));
+        lines.push([c.name, '', `Total (${c.laps} routes, ${c.trad} trad)`, '', '', '', c.ft, c.total].map(q).join(','));
+      }
+      const safe = plan.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'plan';
+      return { csv: '\ufeff' + lines.join('\r\n') + '\r\n', name: `hhh-scorecard-${safe}-${plan.date}.csv`, rows: WHO.reduce((a, k) => a + sc[k].rows.length, 0) };
+    }
+
     function renderVoices(box, plan, L, now) {
       const voice = ui.voice || 'both', tug = tugOf(plan, L, now), sits = voiceSituation(plan, L, now, tug);
       const slot = Math.floor(Date.now() / VSLOT), key = sits.length > 1 && hashStr('f' + slot) % 2 ? sits[1 + hashStr('g' + slot) % (sits.length - 1)] : sits[0];
@@ -842,9 +930,10 @@
           row.appendChild(u); box.appendChild(row);
         } }
       { const mode = ui.goMode || 'ad', seg = el('div', 'chips seg go-mode');
-        for (const [v, lab] of [['ad', 'Angels vs Demons'], ['stats', 'Stats']]) { const bt = el('button', null, lab); bt.type = 'button'; bt.setAttribute('aria-pressed', mode === v); bt.onclick = () => { ui.goMode = v; ctx.saveUi(); renderGo(box); }; seg.appendChild(bt); }
+        for (const [v, lab] of [['ad', 'Angels vs Demons'], ['stats', 'Stats'], ['card', 'Scorecard']]) { const bt = el('button', null, lab); bt.type = 'button'; bt.setAttribute('aria-pressed', mode === v); bt.onclick = () => { ui.goMode = v; ctx.saveUi(); renderGo(box); }; seg.appendChild(bt); }
         box.appendChild(seg);
-        if (mode === 'ad') { const n0 = nowAbs(plan); renderVoices(box, plan, liveStats(plan, n0), n0); return; } }
+        if (mode === 'ad') { const n0 = nowAbs(plan); renderVoices(box, plan, liveStats(plan, n0), n0); return; }
+        if (mode === 'card') { renderScorecard(box, plan); return; } }
       const now = nowAbs(plan), L = liveStats(plan, now), hm = h => { const t = Math.round(Math.abs(h) * 60); return (t >= 60 ? Math.floor(t / 60) + ' h ' : '') + (t % 60) + ' min'; };
       const statusTxt = now < L.start ? `${plan.name} starts in ${hm(L.start - now)} (${fmtAbs(plan, L.start + gunShift(plan), true)}).`
         : now >= L.end ? `${plan.name} is over. Final numbers below.`
@@ -1760,6 +1849,6 @@
       return { plan, stops: wallList, nStops: stops.length, segs, exp, expLabel: exp ? 'Planned spot at ' + Sun.fmt(ui.hour) : '' };
     }
 
-    return { renderGo, importShared, _fixed: FIXED_PACE, _live: liveStats, _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _goalTimes: (p) => goalTimes(p), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, wallRoutes, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
+    return { renderGo, importShared, _fixed: FIXED_PACE, _live: liveStats, _build: build, _meets: meets, _opt: optimize, _tl: (p) => timeline(p, p.items), _goalTimes: (p) => goalTimes(p), _polish: polish, _keeps: keepsRules, _cross: countCrossings, _tune: o => Object.assign(TUNE, o), setWalkWeight: v => { WALKW = v; }, render, mapData, wallRoutes, scorecardCSV: () => { const p = active(); return p ? scorecardCSV(p) : null; }, active, span() { const p = active(); return p && p.items.length ? { date: p.date, start: p.start, end: p.start + FORMATS[p.format].dur, now: clockAbs(p) } : null; }, state: () => state, exportState: () => state, importState(s) { if (s && Array.isArray(s.plans)) { for (const p of s.plans) if (!state.plans.some(x => x.id === p.id)) state.plans.push(fixStart(p)); save(); } } };
   };
 })();

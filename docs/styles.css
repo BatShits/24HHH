@@ -618,3 +618,10 @@ select, input, textarea, button { max-width: 100%; }
   .p-main { grid-template-columns: auto auto minmax(0, 1fr); grid-template-areas: "c t g" "n n n" "x x x"; }
   .p-tags { padding-left: 0; }
 }
+/* Go Time! scorecard */
+.cardtable td.c-n { font-weight: 700; font-variant-numeric: tabular-nums; }
+.cardtable td.c-p, .cardtable td.c-t { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.cardtable td.c-t { color: var(--muted); font-weight: 500; font-size: .85rem; }
+.cardtable .tag { margin-left: 6px; }
+.cardtotals { margin-top: 12px; }
+.go-mode + .chips.seg, .chips.seg + .chips.seg { margin-top: 8px; }
