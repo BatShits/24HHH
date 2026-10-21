@@ -558,7 +558,7 @@
     if (!out) { $('#cardStatus').textContent = 'No plan yet. Build one in the Planning tab.'; return; }
     const blob = new Blob([out.csv], { type: 'text/csv' });
     const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = out.name; document.body.appendChild(a); a.click(); a.remove();
-    $('#cardStatus').textContent = `Exported ${out.name} (${out.rows} ticked route${out.rows === 1 ? '' : 's'}).`;
+    $('#cardStatus').textContent = `Exported ${out.name} (${out.rows} ticked route${out.rows === 1 ? '' : 's'} for ${out.who}).`;
   };
   $('#btnExport').onclick = async () => {
     const payload = { app: 'hhh-field-guide', version: 2, climber: myName() || 'unknown', exported: new Date().toISOString(), profiles, notes, plans: planner ? planner.exportState() : undefined, photos: window.WallPhotos && $('#expPhotos').checked ? await WallPhotos.exportAll() : undefined };

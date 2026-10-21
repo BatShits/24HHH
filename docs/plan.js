@@ -791,20 +791,18 @@
         applyRoute(plan, st, x.r, who, at);
         for (const k of who) { if (!rows[k] || seen[k].has(x.r.id)) continue; seen[k].add(x.r.id); const style = x.r.type === 'trad' ? tradStyle(x.it, k) : ''; rows[k].push({ r: x.r, it: x.it, done: x.it.done, clk, at, style, pts: lapPts(x.r, style) }); }
       }
-      const out = {}, bothHours = WHO.every(k => achievements(plan, st[k]).hoursAll); // One Each Hour needs both climbers every hour
+      const out = {};
       for (const k of WHO) {
         const s = st[k], a = achievements(plan, s), F = FORMATS[plan.format];
-        const east = s.east ? 300 : 0, hour = bothHours && F.hourBonus ? F.hourBonus : 0;
+        const east = s.east ? 300 : 0, hour = a.hoursAll && F.hourBonus ? F.hourBonus : 0; // the rules also need your partner every hour
         const pts = rows[k].reduce((a, x) => a + x.pts, 0), unset = rows[k].filter(x => x.r.type === 'trad' && !x.style).length;
-        out[k] = { name: climber(plan, k).name, rows: rows[k].sort((p, q) => (p.r.n || 9999) - (q.r.n || 9999)), pts, unset, east, hour, total: pts + east + hour, laps: s.laps, trad: s.trad, ft: s.ft, hoursCovered: s.hours.size, hoursAll: a.hoursAll, bothHours };
+        out[k] = { name: climber(plan, k).name, rows: rows[k].sort((p, q) => (p.r.n || 9999) - (q.r.n || 9999)), pts, unset, east, hour, total: pts + east + hour, laps: s.laps, trad: s.trad, ft: s.ft, hoursCovered: s.hours.size, hoursAll: a.hoursAll };
       }
       return out;
     }
     function renderScorecard(box, plan) {
-      const sc = scorecard(plan), who = WHO.includes(ui.cardWho) ? ui.cardWho : 'me', F = FORMATS[plan.format];
-      const seg = el('div', 'chips seg');
-      for (const k of WHO) { const b = el('button', null, sc[k].name); b.type = 'button'; b.setAttribute('aria-pressed', k === who); b.onclick = () => { ui.cardWho = k; ctx.saveUi(); renderGo(box); }; seg.appendChild(b); }
-      box.appendChild(seg);
+      // this phone's climber only: each climber keeps their own scorecard in their own copy of the app
+      const sc = scorecard(plan), who = 'me', F = FORMATS[plan.format];
       const c = sc[who];
       // 24-hour: the first card goes in at the evening check-in, so split the list at the moment you say you handed it in
       let part = 'all', rows = c.rows;
@@ -853,16 +851,16 @@
       tr('Routes (whole event)', String(c.laps));
       tr('Route points', c.pts.toLocaleString() + (c.unset ? ` (${c.unset} trad not marked RP or PP, counted as RP)` : ''));
       tr('East Side bonus', c.east ? '+300' : 'not yet (one east-side route)');
-      if (F.hourBonus) tr('One Each Hour bonus', c.bothHours ? '+' + F.hourBonus : c.hoursAll ? 'not yet (your partner is missing an hour)' : `not yet (${c.hoursCovered} of ${F.dur} hours)`);
+      if (F.hourBonus) tr('One Each Hour bonus', c.hoursAll ? '+' + F.hourBonus : `not yet (${c.hoursCovered} of ${F.dur} hours)`);
       tr('Total', c.total.toLocaleString(), 'team');
       tt.appendChild(tb2); box.appendChild(tt);
-      box.appendChild(el('p', 'hint small', (F.hourBonus ? 'The One Each Hour bonus needs a route every hour from both of you. ' : '') + 'Export a spreadsheet with tick times from Climber Setup.'));
+      box.appendChild(el('p', 'hint small', (F.hourBonus ? 'The One Each Hour bonus counts only if your partner also climbs every hour. ' : '') + 'Export a spreadsheet with tick times from Climber Setup.'));
     }
     // CSV for spreadsheets: one row per counted route per climber, then totals
     function scorecardCSV(plan) {
       const sc = scorecard(plan), q = v => { const t = String(v ?? ''); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
       const lines = [['Climber', 'Comp #', 'Route', 'Wall', 'Grade', 'Type', 'Trad style', 'Height (ft)', 'Points', 'Date', 'Time', 'Hours into event'].join(',')];
-      for (const k of WHO) {
+      for (const k of ['me']) { // this phone's climber; the partner exports their own
         const c = sc[k];
         for (const x of [...c.rows].sort((a, b) => a.at - b.at || (a.r.n || 9999) - (b.r.n || 9999))) {
           const d = dh(plan, x.clk);
@@ -874,7 +872,8 @@
         lines.push([c.name, '', `Total (${c.laps} routes, ${c.trad} trad)`, '', '', '', '', c.ft, c.total].map(q).join(','));
       }
       const safe = plan.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'plan';
-      return { csv: '\ufeff' + lines.join('\r\n') + '\r\n', name: `hhh-scorecard-${safe}-${plan.date}.csv`, rows: WHO.reduce((a, k) => a + sc[k].rows.length, 0) };
+      const who = sc.me.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'me';
+      return { csv: '\ufeff' + lines.join('\r\n') + '\r\n', name: `hhh-scorecard-${who}-${safe}-${plan.date}.csv`, rows: sc.me.rows.length, who: sc.me.name };
     }
 
     function renderVoices(box, plan, L, now) {
@@ -1675,8 +1674,7 @@
         if (r.sp) tags.appendChild(el('span', 'tag special', (r.sp === 'E' ? 'East' : 'West') + ' end'));
         if (row.queue) tags.appendChild(el('span', 'tag queue', `Line ~${row.queue} min`));
         tags.appendChild(el('span', 'tag ' + (r.type === 'trad' ? 'trad' : 'sport'), r.type === 'trad' ? 'Trad' : r.type === 'mixed' ? 'Mixed' : 'Sport'));
-        if (r.type === 'trad') { const it0 = plan.items[row.i], tps = row.who.map(k => tradStyle(it0, k));
-          if (tps.some(Boolean)) tags.appendChild(el('span', 'tag tp', row.who.length > 1 ? row.who.map((k, j) => climber(plan, k).name.split(' ')[0] + ' ' + (tps[j] || '?')).join(', ') : tps[0])); }
+        if (r.type === 'trad' && row.who.includes('me')) { const tp0 = tradStyle(plan.items[row.i], 'me'); if (tp0) tags.appendChild(el('span', 'tag tp', tp0)); }
         main.appendChild(tags);
         main.onclick = () => { editing = editing === row.i ? null : row.i; render(); };
         const hd = dragHandle('Drag to reorder ' + r.name + ' within ' + r.area); const Gr = groups[groups.length - 1]; hd.addEventListener('pointerdown', e => startDrag(e, 'route', row.i, li, Gr));
@@ -1686,7 +1684,7 @@
           const btn = (label, fn, cls) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.onclick = () => { fn(); save(); render(); ctx.onPlanChange(); }; a.appendChild(b); };
           const it = plan.items[row.i];
           btn('Who: ' + whoLabel(it.who), () => { it.who = it.who.length === 2 ? ['me'] : it.who[0] === 'me' ? ['partner'] : ['me', 'partner']; });
-          if (r.type === 'trad') for (const k of it.who) { const cur = tradStyle(it, k);
+          if (r.type === 'trad') for (const k of it.who.filter(w => w === 'me')) { const cur = tradStyle(it, k);
             btn(`${climber(plan, k).name}: ${cur || 'RP or PP?'}`, () => { const nx = cur === '' ? 'RP' : cur === 'RP' ? 'PP' : ''; it.tp = Object.assign({}, it.tp, { [k]: nx || undefined }); if (!it.tp.me && !it.tp.partner) delete it.tp; }); }
           btn('Move up', () => { if (row.i > 0) plan.items.splice(row.i - 1, 0, plan.items.splice(row.i, 1)[0]); editing = row.i - 1; });
           btn('Move down', () => { if (row.i < plan.items.length - 1) plan.items.splice(row.i + 1, 0, plan.items.splice(row.i, 1)[0]); editing = row.i + 1; });
