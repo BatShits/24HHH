@@ -15,7 +15,8 @@
       if (!x.done) return w ? [id, w] : id;
       const [y, m, d] = plan.date.split('-').map(Number);
       const mins = Math.round((new Date(x.done) - new Date(Date.UTC(y, m - 1, d))) / 60000); // minutes after plan-date midnight UTC
-      return [id, w, mins];
+      const tp = x.tp && (x.tp.me || x.tp.partner) ? (x.tp.me || '-')[0] + (x.tp.partner || '-')[0] : null; // trad style: 'R'/'P'/'-' for me then partner
+      return tp ? [id, w, mins, tp] : [id, w, mins];
     });
     return { v: 1, from, p, it, pr: profiles };
   }
@@ -25,9 +26,10 @@
     const [y, m, d] = plan.date.split('-').map(Number);
     plan.items = o.it.map(x => {
       if (x && typeof x === 'object' && !Array.isArray(x)) return x;
-      const [id, w = 0, mins] = Array.isArray(x) ? x : [x];
+      const [id, w = 0, mins, tp] = Array.isArray(x) ? x : [x];
       const it = { rid: typeof id === 'number' ? 'c' + id : id, who: w === 1 ? ['me'] : w === 2 ? ['partner'] : ['me', 'partner'] };
       if (mins != null) it.done = new Date(Date.UTC(y, m - 1, d) + mins * 60000).toISOString();
+      if (typeof tp === 'string') { const st = ch => ch === 'R' ? 'RP' : ch === 'P' ? 'PP' : undefined, t = { me: st(tp[0]), partner: st(tp[1]) }; if (t.me || t.partner) it.tp = t; }
       return it;
     });
     return { plan, profiles: o.pr || null, from: o.from || '' };

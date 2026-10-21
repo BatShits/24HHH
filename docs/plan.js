@@ -773,6 +773,13 @@
       if (!list.length) return null;
       return list[hashStr(who + key + seed + plan.id) % list.length];
     }
+    // Trad style per climber per lap: it.tp = { me: 'RP' | 'PP', partner: ... }. The listed points for trad routes already
+    // include the trad grade bump (a 5.10a trad route pays what a 5.10b sport route does), taken here as the Redpoint value;
+    // Pinkpoint is one rung lower on the comp's points ladder (the same route without the bump).
+    const PTS_LADDER = [30, 40, 50, 60, 70, 80, 90, 100, 110, 120, 130, 140, 160, 180, 200, 220, 250, 280, 310, 350, 390, 440, 490, 550, 610, 670, 790, 880, 980];
+    const ppPts = p => { const i = PTS_LADDER.indexOf(p); return i > 0 ? PTS_LADDER[i - 1] : p; };
+    const tradStyle = (it, k) => (it && it.tp && it.tp[k]) || '';
+    const lapPts = (r, style) => r.type === 'trad' && style === 'PP' ? ppPts(r.pts || 0) : (r.pts || 0);
     // ---------- scorecard: what each climber has ticked, in comp-number order to copy onto the official card or app ----------
     // One counted lap per route per climber. Tick time = when the box was ticked (real Chicago clock); event hours run from the gun.
     function scorecard(plan) {
@@ -782,13 +789,14 @@
       for (const x of done) {
         const clk = clockOf(plan, Date.parse(x.it.done)), at = clk - sh, who = x.it.who || WHO;
         applyRoute(plan, st, x.r, who, at);
-        for (const k of who) { if (!rows[k] || seen[k].has(x.r.id)) continue; seen[k].add(x.r.id); rows[k].push({ r: x.r, done: x.it.done, clk, at }); }
+        for (const k of who) { if (!rows[k] || seen[k].has(x.r.id)) continue; seen[k].add(x.r.id); const style = x.r.type === 'trad' ? tradStyle(x.it, k) : ''; rows[k].push({ r: x.r, it: x.it, done: x.it.done, clk, at, style, pts: lapPts(x.r, style) }); }
       }
       const out = {}, bothHours = WHO.every(k => achievements(plan, st[k]).hoursAll); // One Each Hour needs both climbers every hour
       for (const k of WHO) {
         const s = st[k], a = achievements(plan, s), F = FORMATS[plan.format];
         const east = s.east ? 300 : 0, hour = bothHours && F.hourBonus ? F.hourBonus : 0;
-        out[k] = { name: climber(plan, k).name, rows: rows[k].sort((p, q) => (p.r.n || 9999) - (q.r.n || 9999)), pts: s.pts, east, hour, total: s.pts + east + hour, laps: s.laps, trad: s.trad, ft: s.ft, hoursCovered: s.hours.size, hoursAll: a.hoursAll, bothHours };
+        const pts = rows[k].reduce((a, x) => a + x.pts, 0), unset = rows[k].filter(x => x.r.type === 'trad' && !x.style).length;
+        out[k] = { name: climber(plan, k).name, rows: rows[k].sort((p, q) => (p.r.n || 9999) - (q.r.n || 9999)), pts, unset, east, hour, total: pts + east + hour, laps: s.laps, trad: s.trad, ft: s.ft, hoursCovered: s.hours.size, hoursAll: a.hoursAll, bothHours };
       }
       return out;
     }
@@ -817,16 +825,24 @@
           box.appendChild(el('p', 'hint small', 'Paper cards on the 24-hour: the first one goes in at the 9:30 to 10:30 pm check-in. Tap this when you hand it in, and the list splits into Card 1 and Card 2.'));
         }
       }
-      const sum = rows.reduce((a, x) => a + (x.r.pts || 0), 0);
-      box.appendChild(el('p', 'hint', rows.length ? `${rows.length} route${rows.length === 1 ? '' : 's'} for ${c.name}, in comp-number order to match the scorecard. Trad routes: mark PP or RP on the card yourself.` : `Nothing ticked for ${c.name}${part === 'c2' ? ' since card 1' : ''} yet. Tick routes off in the Planning tab as you climb.`));
+      const sum = rows.reduce((a, x) => a + x.pts, 0);
+      box.appendChild(el('p', 'hint', rows.length ? `${rows.length} route${rows.length === 1 ? '' : 's'} for ${c.name}, in comp-number order to match the scorecard. For trad, pick RP (you placed the gear) or PP (it was already in); PP scores one step lower.` : `Nothing ticked for ${c.name}${part === 'c2' ? ' since card 1' : ''} yet. Tick routes off in the Planning tab as you climb.`));
       if (rows.length) {
         const t = el('table', 'sumtable cardtable'), th = el('thead'), hr = el('tr');
-        for (const h of ['#', 'Route', 'Grade', 'Pts', 'Ticked']) hr.appendChild(el('th', null, h));
+        for (const h of ['#', 'Route', 'Grade', 'Pts']) hr.appendChild(el('th', null, h));
         th.appendChild(hr); t.appendChild(th); const tb = el('tbody');
         for (const x of rows) {
-          const tr = el('tr'); const nm = el('td', null, x.r.name);
-          if (x.r.type === 'trad') nm.appendChild(el('span', 'tag trad', 'Trad'));
-          tr.append(el('td', 'c-n', x.r.n ? String(x.r.n) : '–'), nm, el('td', null, x.r.g), el('td', 'c-p', String(x.r.pts || 0)), el('td', 'c-t', fmtAbs(plan, x.clk, true)));
+          const tr = el('tr' , x.r.type === 'trad' && !x.style ? 'needs-style' : ''); const nm = el('td', null, x.r.name); let sgEl = null;
+          if (x.r.type === 'trad') {
+            const sg = el('span', 'chips seg tp-seg');
+            for (const v of ['RP', 'PP']) { const b = el('button', null, v); b.type = 'button'; b.setAttribute('aria-pressed', x.style === v); b.setAttribute('aria-label', `${v === 'RP' ? 'Redpoint' : 'Pinkpoint'}: ${x.r.name}`);
+              b.onclick = () => { x.it.tp = Object.assign({}, x.it.tp, { [who]: x.style === v ? undefined : v }); if (!x.it.tp.me && !x.it.tp.partner) delete x.it.tp; save(); renderGo(box); }; sg.appendChild(b); }
+            sgEl = sg;
+            nm.append(el('span', 'tag trad', 'Trad'));
+          }
+          nm.appendChild(el('span', 'c-t', 'Ticked ' + fmtAbs(plan, x.clk, true)));
+          if (x.r.type === 'trad') nm.appendChild(sgEl);
+          tr.append(el('td', 'c-n', x.r.n ? String(x.r.n) : '–'), nm, el('td', null, x.r.g), el('td', 'c-p', String(x.pts)));
           tb.appendChild(tr);
         }
         t.appendChild(tb); box.appendChild(t);
@@ -835,7 +851,7 @@
       const tr = (a, b, cls) => { const r = el('tr', cls || ''); r.append(el('th', null, a), el('td', null, b)); tb2.appendChild(r); };
       if (part !== 'all') tr(part === 'c1' ? 'Card 1 route points' : 'Card 2 route points', sum.toLocaleString());
       tr('Routes (whole event)', String(c.laps));
-      tr('Route points', c.pts.toLocaleString());
+      tr('Route points', c.pts.toLocaleString() + (c.unset ? ` (${c.unset} trad not marked RP or PP, counted as RP)` : ''));
       tr('East Side bonus', c.east ? '+300' : 'not yet (one east-side route)');
       if (F.hourBonus) tr('One Each Hour bonus', c.bothHours ? '+' + F.hourBonus : c.hoursAll ? 'not yet (your partner is missing an hour)' : `not yet (${c.hoursCovered} of ${F.dur} hours)`);
       tr('Total', c.total.toLocaleString(), 'team');
@@ -845,17 +861,17 @@
     // CSV for spreadsheets: one row per counted route per climber, then totals
     function scorecardCSV(plan) {
       const sc = scorecard(plan), q = v => { const t = String(v ?? ''); return /[",\n]/.test(t) ? '"' + t.replace(/"/g, '""') + '"' : t; };
-      const lines = [['Climber', 'Comp #', 'Route', 'Wall', 'Grade', 'Type', 'Height (ft)', 'Points', 'Date', 'Time', 'Hours into event'].join(',')];
+      const lines = [['Climber', 'Comp #', 'Route', 'Wall', 'Grade', 'Type', 'Trad style', 'Height (ft)', 'Points', 'Date', 'Time', 'Hours into event'].join(',')];
       for (const k of WHO) {
         const c = sc[k];
         for (const x of [...c.rows].sort((a, b) => a.at - b.at || (a.r.n || 9999) - (b.r.n || 9999))) {
           const d = dh(plan, x.clk);
-          lines.push([c.name, x.r.n || '', x.r.name, x.r.area, x.r.g, x.r.type, x.r.ht || '', x.r.pts || 0, d.ymd, Sun.fmt(d.hour), (x.at - plan.start).toFixed(2)].map(q).join(','));
+          lines.push([c.name, x.r.n || '', x.r.name, x.r.area, x.r.g, x.r.type, x.r.type === 'trad' ? (x.style || 'not marked (RP)') : '', x.r.ht || '', x.pts, d.ymd, Sun.fmt(d.hour), (x.at - plan.start).toFixed(2)].map(q).join(','));
         }
-        lines.push([c.name, '', 'Route points', '', '', '', c.ft, c.pts].map(q).join(','));
-        lines.push([c.name, '', 'East Side bonus', '', '', '', '', c.east].map(q).join(','));
-        if (FORMATS[plan.format].hourBonus) lines.push([c.name, '', 'One Each Hour bonus', '', '', '', '', c.hour].map(q).join(','));
-        lines.push([c.name, '', `Total (${c.laps} routes, ${c.trad} trad)`, '', '', '', c.ft, c.total].map(q).join(','));
+        lines.push([c.name, '', 'Route points' + (c.unset ? ` (${c.unset} trad not marked, counted as RP)` : ''), '', '', '', '', c.ft, c.pts].map(q).join(','));
+        lines.push([c.name, '', 'East Side bonus', '', '', '', '', '', c.east].map(q).join(','));
+        if (FORMATS[plan.format].hourBonus) lines.push([c.name, '', 'One Each Hour bonus', '', '', '', '', '', c.hour].map(q).join(','));
+        lines.push([c.name, '', `Total (${c.laps} routes, ${c.trad} trad)`, '', '', '', '', c.ft, c.total].map(q).join(','));
       }
       const safe = plan.name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'plan';
       return { csv: '\ufeff' + lines.join('\r\n') + '\r\n', name: `hhh-scorecard-${safe}-${plan.date}.csv`, rows: WHO.reduce((a, k) => a + sc[k].rows.length, 0) };
@@ -1160,7 +1176,7 @@
         b.onclick = () => {
           const swap = k === 'partner', sw = w => w === 'me' ? 'partner' : 'me';
           const plan = JSON.parse(JSON.stringify(inc));
-          if (swap) { for (const it of plan.items) if (it.who) it.who = it.who.map(sw); if (plan.divs) plan.divs = { me: plan.divs.partner, partner: plan.divs.me }; }
+          if (swap) { for (const it of plan.items) { if (it.who) it.who = it.who.map(sw); if (it.tp) it.tp = { me: it.tp.partner, partner: it.tp.me }; } if (plan.divs) plan.divs = { me: plan.divs.partner, partner: plan.divs.me }; }
           fixStart(plan);
           const i = state.plans.findIndex(p => p.id === plan.id); if (i >= 0) state.plans[i] = plan; else state.plans.push(plan);
           state.active = plan.id; save();
@@ -1659,6 +1675,8 @@
         if (r.sp) tags.appendChild(el('span', 'tag special', (r.sp === 'E' ? 'East' : 'West') + ' end'));
         if (row.queue) tags.appendChild(el('span', 'tag queue', `Line ~${row.queue} min`));
         tags.appendChild(el('span', 'tag ' + (r.type === 'trad' ? 'trad' : 'sport'), r.type === 'trad' ? 'Trad' : r.type === 'mixed' ? 'Mixed' : 'Sport'));
+        if (r.type === 'trad') { const it0 = plan.items[row.i], tps = row.who.map(k => tradStyle(it0, k));
+          if (tps.some(Boolean)) tags.appendChild(el('span', 'tag tp', row.who.length > 1 ? row.who.map((k, j) => climber(plan, k).name.split(' ')[0] + ' ' + (tps[j] || '?')).join(', ') : tps[0])); }
         main.appendChild(tags);
         main.onclick = () => { editing = editing === row.i ? null : row.i; render(); };
         const hd = dragHandle('Drag to reorder ' + r.name + ' within ' + r.area); const Gr = groups[groups.length - 1]; hd.addEventListener('pointerdown', e => startDrag(e, 'route', row.i, li, Gr));
@@ -1668,6 +1686,8 @@
           const btn = (label, fn, cls) => { const b = el('button', 'btn ' + (cls || ''), label); b.type = 'button'; b.onclick = () => { fn(); save(); render(); ctx.onPlanChange(); }; a.appendChild(b); };
           const it = plan.items[row.i];
           btn('Who: ' + whoLabel(it.who), () => { it.who = it.who.length === 2 ? ['me'] : it.who[0] === 'me' ? ['partner'] : ['me', 'partner']; });
+          if (r.type === 'trad') for (const k of it.who) { const cur = tradStyle(it, k);
+            btn(`${climber(plan, k).name}: ${cur || 'RP or PP?'}`, () => { const nx = cur === '' ? 'RP' : cur === 'RP' ? 'PP' : ''; it.tp = Object.assign({}, it.tp, { [k]: nx || undefined }); if (!it.tp.me && !it.tp.partner) delete it.tp; }); }
           btn('Move up', () => { if (row.i > 0) plan.items.splice(row.i - 1, 0, plan.items.splice(row.i, 1)[0]); editing = row.i - 1; });
           btn('Move down', () => { if (row.i < plan.items.length - 1) plan.items.splice(row.i + 1, 0, plan.items.splice(row.i, 1)[0]); editing = row.i + 1; });
           btn('Add route after', () => openPicker(plan, row.i + 1));

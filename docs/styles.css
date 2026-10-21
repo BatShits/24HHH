@@ -625,3 +625,9 @@ select, input, textarea, button { max-width: 100%; }
 .cardtable .tag { margin-left: 6px; }
 .cardtotals { margin-top: 12px; }
 .go-mode + .chips.seg, .chips.seg + .chips.seg { margin-top: 8px; }
+.tp-seg { display: flex; width: max-content; margin-top: 4px; }
+.tp-seg button { padding: 3px 10px; font-size: .78rem; min-height: 0; white-space: nowrap; overflow-wrap: normal; }
+.cardtable th, .cardtable td { padding-left: 3px; padding-right: 3px; }
+.cardtable .c-t { display: block; font-size: .78rem; font-weight: 500; color: var(--muted); }
+.cardtable tr.needs-style td { background: color-mix(in srgb, var(--sun) 12%, transparent); }
+.tag.tp { background: var(--surface); border: 1px solid var(--line); }
