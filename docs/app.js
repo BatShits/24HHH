@@ -269,7 +269,7 @@
   function row(dl, k, v) { if (v == null || v === '') return; dl.append(el('dt', null, k), el('dd', null, v)); }
   function openDetail(id) {
     const r = ROUTES.find(x => x.id === id); if (!r) return;
-    const d = $('#detail'); d.textContent = '';
+    const d = $('#detail'); d.textContent = ''; d.dataset.rid = id;
     const head = el('header', 'd-head');
     head.append(el('span', 'grade big ' + (feelOf(r) ? 'feel-' + feelOf(r) : ''), r.g || '?'));
     const t = el('div', 'd-title'); t.append(el('h2', null, r.name), el('p', null, [r.n ? 'No. ' + r.n : 'Not on the comp scorecard', r.area || r.zone].filter(Boolean).join(', ')));

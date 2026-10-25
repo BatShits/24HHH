@@ -10,7 +10,12 @@
   }));
   const tx = async (mode, fn) => { const d = await db(); return new Promise((res, rej) => { const t = d.transaction(STORE, mode); const out = fn(t.objectStore(STORE)); t.oncomplete = () => res(out && 'result' in out ? out.result : out); t.onerror = () => rej(t.error); }); };
   const all = () => tx('readonly', s => s.getAll());
-  const byArea = async area => (await all()).filter(p => p.area === area).sort((a, b) => a.taken < b.taken ? -1 : 1);
+  // photos in route order: by the first climb marked on them (walking order round the canyon), unmarked ones after, oldest first
+  const orderKey = p => { const byId = routeIdx(); let k = 1e9; for (const m of p.marks || []) { const r = byId[m.rid]; if (r) k = Math.min(k, r.walk ?? (r.n != null ? r.n : 1e8)); } return k; };
+  let ridx = null, ridxN = 0; const routeIdx = () => { const R = C.ROUTES(); if (!ridx || ridxN !== R.length) { ridx = Object.fromEntries(R.map(r => [r.id, r])); ridxN = R.length; } return ridx; };
+  const routeSort = list => list.map(p => [orderKey(p), p]).sort((a, b) => a[0] - b[0] || (a[1].taken < b[1].taken ? -1 : 1)).map(x => x[1]);
+  const allSorted = async () => routeSort(await all());
+  const byArea = async area => routeSort((await all()).filter(p => p.area === area));
   const put = rec => tx('readwrite', s => s.put(rec));
   const del = id => tx('readwrite', s => s.delete(id));
 
@@ -242,16 +247,34 @@
   }
   const arOf = rec => (rec.w && rec.h) ? rec.w / rec.h : 1.5;
   // full-screen viewer: swipe between a set of photos, zoom with pinch, double-tap or the +/- buttons
-  function view(list, start = 0, focus = null) {
+  function view(list, start = 0, focus = null, opts = {}) {
     if (!Array.isArray(list)) list = [list];
-    const { d, h } = fullDialog(list[start].area);
+    const { d, h } = fullDialog(list[start].area); d.classList.add('pv-dlg'); if (opts.auto) d.dataset.auto = '1';
     const car = el('div', 'pv-car'); d.appendChild(car);
+    // tap a mark: its name and grade appear on the photo; tap that for the route details
+    const byId = routeIdx(); let tag = null;
+    const hideTag = () => { if (tag) { tag.remove(); tag = null; } };
+    const showTag = (box, b) => {
+      const rid = b.dataset.rid, same = tag && tag.dataset.rid === rid; hideTag(); if (same) return;
+      const r = byId[rid]; if (!r) return;
+      tag = el('button', 'pm-tag'); tag.type = 'button'; tag.dataset.rid = rid;
+      tag.append(el('span', 'pm-tag-g', r.g || '?'), el('span', 'pm-tag-n', (r.n != null ? '#' + r.n + ' ' : '') + r.name), el('span', 'pm-tag-go', 'Details ›'));
+      tag.style.left = b.style.left; tag.style.top = b.style.top;
+      const x = parseFloat(b.style.left); if (x > 70) tag.classList.add('right'); else if (x < 30) tag.classList.add('left');
+      if (parseFloat(b.style.top) < 22) tag.classList.add('below');
+      tag.onclick = e => { e.stopPropagation(); d.close(); C.openDetail(rid); };
+      tag.addEventListener('pointerup', e => e.stopPropagation());
+      box.appendChild(tag);
+    };
     const slides = list.map(rec => {
       const sl = el('div', 'pv-slide'); const box = thumb(rec, { focus, lazy: true });
-      box.querySelectorAll('.pm').forEach(b => { const rid = b.dataset.rid; b.onclick = e => { e.stopPropagation(); d.close(); C.openDetail(rid); }; });
+      box.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); showTag(box, b); }; });
       sl.appendChild(box); car.appendChild(sl);
       return { rec, sl, box, z: 1, base: 0 };
     });
+    // landscape: the photo takes the whole screen (CSS hides the rest); these float over it
+    const fx = el('button', 'pv-x', '×'); fx.type = 'button'; fx.setAttribute('aria-label', 'Close'); fx.onclick = () => d.close();
+    const fc = el('span', 'pv-count'); d.append(fx, fc);
     const info = el('p', 'hint small pv-info'); d.appendChild(info);
     const bar = el('div', 'pv-bar');
     const btn = (t, lab, fn) => { const b = el('button', 'pv-btn', t); b.type = 'button'; b.setAttribute('aria-label', lab); b.onclick = fn; bar.appendChild(b); return b; };
@@ -295,7 +318,8 @@
       slides.forEach((s, i) => { const img = s.box.querySelector('img'); if (Math.abs(i - cur) <= 1) { const u = urlOf(s.rec); if (img.getAttribute('src') !== u) img.src = u; } else if (img.getAttribute('src')) img.removeAttribute('src'); });
       const r = slides[cur].rec;
       h.textContent = r.area;
-      info.textContent = (list.length > 1 ? `${cur + 1} of ${list.length} · ` : '') + `${r.marks.length} marked` + (slides[cur].z > 1.01 ? ` · ${slides[cur].z.toFixed(1)}×` : '') + ' · tap a mark for its route · orange = in plan, green = done';
+      info.textContent = (list.length > 1 ? `${cur + 1} of ${list.length} · ` : '') + `${r.marks.length} marked` + (slides[cur].z > 1.01 ? ` · ${slides[cur].z.toFixed(1)}×` : '') + ' · tap a mark for its name · turn the phone sideways for full screen · orange = in plan, green = done';
+      fc.textContent = `${r.area}${list.length > 1 ? ` · ${cur + 1} of ${list.length}` : ''}`;
       bPrev.disabled = cur === 0; bNext.disabled = cur === list.length - 1; bOut.disabled = bFit.disabled = slides[cur].z <= 1.01; bIn.disabled = slides[cur].z >= 5.99;
       bPrev.hidden = bNext.hidden = list.length < 2;
     }
@@ -304,7 +328,7 @@
       if (slides[cur].z > 1.01) { slides[cur].z = 1; size(slides[cur]); }
       cur = i; car.classList.remove('locked'); car.scrollTo({ left: i * car.clientWidth, behavior: 'smooth' }); status();
     }
-    car.addEventListener('scroll', () => { const i = Math.round(car.scrollLeft / Math.max(1, car.clientWidth)); if (i !== cur && slides[i]) { if (slides[cur].z > 1.01) { slides[cur].z = 1; size(slides[cur]); } cur = i; status(); } }, { passive: true });
+    car.addEventListener('scroll', () => { const i = Math.round(car.scrollLeft / Math.max(1, car.clientWidth)); if (i !== cur && slides[i]) { if (slides[cur].z > 1.01) { slides[cur].z = 1; size(slides[cur]); } cur = i; hideTag(); status(); } }, { passive: true });
     // pinch and double-tap on each slide
     for (const s of slides) {
       const pts = new Map(); let pinch = null, lastTap = 0;
@@ -312,7 +336,8 @@
       s.sl.addEventListener('pointermove', e => { if (!pts.has(e.pointerId)) return; pts.set(e.pointerId, e); if (pinch && pts.size === 2) { const [a, b] = [...pts.values()]; zoomTo(s, pinch.z * Math.hypot(a.clientX - b.clientX, a.clientY - b.clientY) / pinch.d, pinch.cx, pinch.cy); } });
       const up = e => { pts.delete(e.pointerId); if (pts.size < 2) pinch = null; };
       s.sl.addEventListener('pointerup', e => {
-        up(e); if (e.target.closest('.pm')) return;
+        up(e); if (e.target.closest('.pm, .pm-tag')) return;
+        hideTag();
         const now = Date.now(); if (now - lastTap < 300) { const S = s.sl.getBoundingClientRect(); zoomTo(s, s.z > 1.01 ? 1 : 2.5, e.clientX - S.left, e.clientY - S.top); lastTap = 0; } else lastTap = now;
       });
       s.sl.addEventListener('pointercancel', up);
@@ -321,6 +346,27 @@
     d.addEventListener('close', () => ro.disconnect());
     layout(); car.scrollLeft = start * car.clientWidth; status();
   }
+  // open the viewer on one photo, with every photo on the phone in route order so swiping walks round the canyon
+  async function openAt(p, focus = null, opts = {}) {
+    let list = []; try { list = await allSorted(); } catch (e) { list = [p]; }
+    const i = Math.max(0, list.findIndex(x => x.id === p.id)); if (!list.length) list = [p];
+    view(list, i, focus, opts);
+  }
+  // turning the phone sideways opens the photos full screen (the wall sheet's wall, or the open route's start); back upright closes it
+  const LAND = window.matchMedia ? window.matchMedia('(orientation: landscape) and (max-height: 600px)') : null;
+  async function onRotate() {
+    if (!C || !LAND) return;
+    const open = document.querySelector('dialog.pv-dlg[open]');
+    if (!LAND.matches) { if (open && open.dataset.auto) open.close(); return; }
+    if (document.querySelector('dialog.photo-dlg[open]')) return; // already viewing or editing
+    let list; try { list = await allSorted(); } catch (e) { return; }
+    if (!list.length) return;
+    const det = document.getElementById('detail'), sh = document.getElementById('areaSheet');
+    if (det && det.open && det.dataset.rid) { const rid = det.dataset.rid, p = list.find(x => x.marks.some(m => m.rid === rid)); if (p) return view(list, list.indexOf(p), rid, { auto: true }); }
+    if (sh && !sh.hidden && sh.dataset.area && sh.offsetParent) { const p = list.find(x => x.area === sh.dataset.area); if (p) return view(list, list.indexOf(p), null, { auto: true }); }
+  }
+  if (LAND) { if (LAND.addEventListener) LAND.addEventListener('change', onRotate); else if (LAND.addListener) LAND.addListener(onRotate); }
+
   // a wall's photos for the map sheet
   async function section(area) {
     const wrap = el('div', 'photos');
@@ -330,16 +376,16 @@
     let ps = []; try { ps = await Promise.all((await byArea(area)).map(ensureThumb)); } catch (e) { wrap.appendChild(el('p', 'hint small', 'Photos aren\'t available in this browser.')); return wrap; }
     if (!ps.length) wrap.appendChild(el('p', 'hint small', 'No photos yet. Take one from the base of the wall and mark where each climb starts.'));
     const row = el('div', 'photo-row');
-    ps.forEach((p, i) => { const t = thumb(p); t.classList.add('mini'); t.style.width = `calc(var(--thumb-h) * ${arOf(p).toFixed(4)})`; t.onclick = () => view(ps, i); t.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); view(ps, i); }; }); row.appendChild(t); });
+    ps.forEach(p => { const t = thumb(p); t.classList.add('mini'); t.style.width = `calc(var(--thumb-h) * ${arOf(p).toFixed(4)})`; t.onclick = () => openAt(p); t.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); openAt(p); }; }); row.appendChild(t); });
     wrap.appendChild(row);
     return wrap;
   }
   // the photo(s) showing one route, for the route detail
   async function forRoute(rid) {
-    let ps = []; try { ps = await Promise.all((await all()).filter(p => p.marks.some(m => m.rid === rid)).map(ensureThumb)); } catch (e) { return null; }
+    let ps = []; try { ps = await Promise.all(routeSort((await all()).filter(p => p.marks.some(m => m.rid === rid))).map(ensureThumb)); } catch (e) { return null; }
     if (!ps.length) return null;
     const wrap = el('div', 'photos'); wrap.appendChild(el('h3', null, 'Where it starts'));
-    const row = el('div', 'photo-row'); ps.forEach((p, i) => { const t = thumb(p, { focus: rid }); t.classList.add('mini'); t.style.width = `calc(var(--thumb-h) * ${arOf(p).toFixed(4)})`; t.onclick = () => view(ps, i, rid); t.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); view(ps, i, rid); }; }); row.appendChild(t); }); wrap.appendChild(row);
+    const row = el('div', 'photo-row'); ps.forEach((p, i) => { const t = thumb(p, { focus: rid }); t.classList.add('mini'); t.style.width = `calc(var(--thumb-h) * ${arOf(p).toFixed(4)})`; t.onclick = () => openAt(p, rid); t.querySelectorAll('.pm').forEach(b => { b.onclick = e => { e.stopPropagation(); openAt(p, rid); }; }); row.appendChild(t); }); wrap.appendChild(row);
     return wrap;
   }
 
@@ -363,7 +409,7 @@
   let manageGen = 0;
   async function manage(box) {
     const gen = ++manageGen;
-    let ps = []; try { ps = (await all()).sort((a, b) => a.taken < b.taken ? 1 : -1); for (const p of ps) await ensureThumb(p); } catch (e) { box.textContent = ''; box.appendChild(el('p', 'hint small', 'Photos aren\'t available in this browser.')); return; }
+    let ps = []; try { ps = await allSorted(); for (const p of ps) await ensureThumb(p); } catch (e) { box.textContent = ''; box.appendChild(el('p', 'hint small', 'Photos aren\'t available in this browser.')); return; }
     if (gen !== manageGen) return; // a newer refresh is on its way
     box.textContent = '';
     if (!ps.length) { box.appendChild(el('p', 'hint small', 'No wall photos on this phone.')); return; }
@@ -371,7 +417,7 @@
     box.appendChild(el('p', 'hint small', `${u.n} photos, ${mb(u.bytes)}` + (u.quota ? ` of about ${u.quota > 2 ** 30 ? (u.quota / 2 ** 30).toFixed(1) + ' GB' : mb(u.quota)} this app may use.` : '.')));
     const ul = el('ul', 'ph-list');
     ps.forEach((p, i) => {
-      const li = el('li', 'ph-item'); const im = el('img'); im.loading = 'lazy'; im.src = thumbUrlOf(p); im.alt = ''; im.onclick = () => view(ps, i);
+      const li = el('li', 'ph-item'); const im = el('img'); im.loading = 'lazy'; im.src = thumbUrlOf(p); im.alt = ''; im.onclick = () => openAt(p);
       const tx = el('div', 'ph-tx'); tx.append(el('strong', null, p.area || 'No wall'), el('span', 'hint small', `${(t => t.toLocaleDateString([], { month: 'short', day: 'numeric' }) + ', ' + Sun.fmt(t.getHours() + t.getMinutes() / 60))(new Date(p.taken))} · ${p.marks.length} marked`));
       const x = el('button', 'btn danger', 'Delete'); x.type = 'button'; let armed = 0;
       x.onclick = async () => { if (Date.now() - armed > 4000) { armed = Date.now(); x.textContent = 'Sure?'; return; } await del(p.id); C.onPhotos(p.area); manage(box); };

@@ -631,3 +631,17 @@ select, input, textarea, button { max-width: 100%; }
 .cardtable .c-t { display: block; font-size: .78rem; font-weight: 500; color: var(--muted); }
 .cardtable tr.needs-style td { background: color-mix(in srgb, var(--sun) 12%, transparent); }
 .tag.tp { background: var(--surface); border: 1px solid var(--line); }
+/* photo viewer: tapped mark shows the route; landscape = full screen */
+.pm-tag { position: absolute; z-index: 5; transform: translate(-50%, calc(-100% - 40px)); display: flex; flex-direction: column; align-items: flex-start; gap: 2px; width: max-content; max-width: min(70vw, 340px);
+  padding: 8px 12px; border: 0; border-radius: 10px; background: rgb(20 20 20 / .88); color: #fff; text-align: left; line-height: 1.25; box-shadow: 0 2px 10px rgb(0 0 0 / .45); }
+.pm-tag.left { transform: translate(-14px, calc(-100% - 40px)); } .pm-tag.right { transform: translate(calc(-100% + 14px), calc(-100% - 40px)); }
+.pm-tag.below { transform: translate(-50%, 8px); } .pm-tag.below.left { transform: translate(-14px, 8px); } .pm-tag.below.right { transform: translate(calc(-100% + 14px), 8px); }
+.pm-tag-g { font-weight: 800; font-size: 1rem; } .pm-tag-n { font-weight: 600; font-size: .95rem; overflow-wrap: break-word; } .pm-tag-go { font-size: .8rem; color: #ffcf8a; }
+.pv-x, .pv-count { display: none; }
+@media (orientation: landscape) and (max-height: 600px) {
+  .photo-dlg.pv-dlg { background: #000; }
+  .photo-dlg.pv-dlg .pd-head, .photo-dlg.pv-dlg .pv-info, .photo-dlg.pv-dlg .pv-bar, .photo-dlg.pv-dlg .pd-act { display: none; }
+  .photo-dlg.pv-dlg .pv-car { flex: 1 1 auto; height: 100%; }
+  .pv-x { display: block; position: fixed; top: max(8px, env(safe-area-inset-top)); right: max(10px, env(safe-area-inset-right)); z-index: 6; width: 40px; height: 40px; border-radius: 50%; border: 0; background: rgb(0 0 0 / .55); color: #fff; font-size: 1.6rem; line-height: 1; }
+  .pv-count { display: block; position: fixed; top: max(12px, env(safe-area-inset-top)); left: max(12px, env(safe-area-inset-left)); z-index: 6; padding: 4px 10px; border-radius: 999px; background: rgb(0 0 0 / .55); color: #fff; font-size: .8rem; font-weight: 600; pointer-events: none; }
+}
