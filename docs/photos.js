@@ -17,11 +17,16 @@
   const allSorted = async () => routeSort(await all());
   const byArea = async area => routeSort((await all()).filter(p => p.area === area));
   const put = rec => tx('readwrite', s => s.put(rec));
-  const del = id => tx('readwrite', s => s.delete(id));
+  const del = async id => { const r = await tx('readwrite', s => s.delete(id)); forget(id); return r; };
 
   let C = null; // context from app.js
-  const urls = new Map(); // blob URLs, one per photo id
-  const urlOf = p => { let u = urls.get(p.id); if (!u || u.blob !== p.blob) { if (u) URL.revokeObjectURL(u.url); u = { blob: p.blob, url: URL.createObjectURL(p.blob) }; urls.set(p.id, u); } return u.url; };
+  // Blob URLs, one per photo id. Every read from IndexedDB returns a new Blob object for the same picture, so the cache
+  // keys on size and type, not identity, and never revokes a URL that may still be on screen (revoking one turned
+  // visible photos into broken-image icons after an edit). URLs are freed only when the photo is deleted.
+  const urls = new Map(), thumbUrls = new Map();
+  const sameBlob = (a, b) => a && b && a.size === b.size && a.type === b.type;
+  const urlOf = p => { let u = urls.get(p.id); if (!u || !sameBlob(u.blob, p.blob)) { u = { blob: p.blob, url: URL.createObjectURL(p.blob) }; urls.set(p.id, u); } return u.url; };
+  const forget = id => { for (const m of [urls, thumbUrls]) { const u = m.get(id); if (u) { URL.revokeObjectURL(u.url); m.delete(id); } } };
 
   const metres = (a, b) => { const t = Math.PI / 180, x = (b.lon - a.lon) * t * Math.cos((a.lat + b.lat) / 2 * t), y = (b.lat - a.lat) * t; return 6371000 * Math.hypot(x, y); };
   function nearestWall(pos) {
@@ -239,8 +244,7 @@
   });
 
   // ---------- viewing ----------
-  const thumbUrls = new Map();
-  const thumbUrlOf = p => { if (!p.thumb) return urlOf(p); let u = thumbUrls.get(p.id); if (!u || u.blob !== p.thumb) { if (u) URL.revokeObjectURL(u.url); u = { blob: p.thumb, url: URL.createObjectURL(p.thumb) }; thumbUrls.set(p.id, u); } return u.url; };
+  const thumbUrlOf = p => { if (!p.thumb) return urlOf(p); let u = thumbUrls.get(p.id); if (!u || !sameBlob(u.blob, p.thumb)) { u = { blob: p.thumb, url: URL.createObjectURL(p.thumb) }; thumbUrls.set(p.id, u); } return u.url; };
   function thumb(rec, opts = {}) {
     const box = el('div', 'pv-box'); box.style.aspectRatio = `${rec.w || 3} / ${rec.h || 2}`;
     const img = el('img'); img.alt = 'Photo of ' + rec.area; img.loading = 'lazy'; img.decoding = 'async';
