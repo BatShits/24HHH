@@ -75,7 +75,7 @@
   const withTimeout = (p, ms) => Promise.race([p, new Promise(r => setTimeout(() => r(null), ms))]);
   function toast(msg) { let t = document.getElementById('photoToast'); if (!t) { t = el('div', 'photo-toast'); t.id = 'photoToast'; document.body.appendChild(t); } t.textContent = msg; t.hidden = !msg; }
   const routesAt = area => C.ROUTES().filter(r => r.area === area).sort((a, b) => (a.n ?? 1e9) - (b.n ?? 1e9) || (a.walk ?? 1e9) - (b.walk ?? 1e9));
-  const label = r => r.n != null ? String(r.n) : '•';
+  const label = r => (r.n != null ? String(r.n) : '•') + (r.type === 'trad' ? '(T)' : ''); // trad routes read '427(T)' on markers and in the editor
 
   // ---------- dialogs ----------
   function fullDialog(title) {
