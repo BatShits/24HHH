@@ -126,19 +126,22 @@
     const list = el('div', 'pd-routes'); d.appendChild(list);
     let cur = null;
     const placed = () => new Set(rec.marks.map(m => m.rid));
+    // routes already marked on other photos: yellow check (green = marked on this one)
+    let elsewhere = new Set(); try { elsewhere = new Set((await all()).filter(p => p.id !== rec.id).flatMap(p => (p.marks || []).map(m => m.rid))); } catch (e) { /* none */ }
     function renderList() {
       list.textContent = ''; const P = placed();
       const rs = routesAt(sel.value);
       if (cur && !rs.some(r => r.id === cur)) cur = null;
-      if (!cur) { const nx = rs.find(r => !P.has(r.id)); cur = nx ? nx.id : null; }
+      if (!cur) { const nx = rs.find(r => !P.has(r.id) && !elsewhere.has(r.id)) || rs.find(r => !P.has(r.id)); cur = nx ? nx.id : null; }
       for (const r of rs) {
         const b = el('button', 'pd-r' + (P.has(r.id) ? ' done' : '') + (cur === r.id ? ' cur' : '')); b.type = 'button';
-        b.append(el('span', 'pd-n', label(r)), el('span', 'pd-g', r.g), el('span', 'pd-name', r.name), el('span', 'pd-ok', P.has(r.id) ? '✓' : ''));
+        b.append(el('span', 'pd-n', label(r)), el('span', 'pd-g', r.g), el('span', 'pd-name', r.name), el('span', 'pd-ok' + (!P.has(r.id) && elsewhere.has(r.id) ? ' other' : ''), P.has(r.id) || elsewhere.has(r.id) ? '✓' : ''));
+        if (P.has(r.id)) b.title = 'Marked on this photo'; else if (elsewhere.has(r.id)) b.title = 'Marked on another photo';
         b.onclick = () => { cur = r.id; renderList(); redraw(); };
         list.appendChild(b);
       }
       const r = rs.find(x => x.id === cur);
-      help.textContent = r ? `Tap the photo where #${label(r)} ${r.name} starts.` + (P.has(r.id) ? ' Drag its mark to move it.' : '') : rs.length ? 'All marked. Tap a route to move its mark.' : 'No comp routes at this wall.';
+      help.textContent = (r ? `Tap the photo where #${label(r)} ${r.name} starts.` + (P.has(r.id) ? ' Drag its mark to move it.' : elsewhere.has(r.id) ? ' It\'s already marked on another photo.' : '') : rs.length ? 'All marked. Tap a route to move its mark.' : 'No comp routes at this wall.') + (rs.length ? ' Green ✓ on this photo, yellow ✓ on another.' : '');
       rm.hidden = !(cur && P.has(cur));
     }
     function redraw() {
