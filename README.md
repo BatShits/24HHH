@@ -2,7 +2,7 @@
 
 Offline phone app for planning and climbing 24 Hours of Horseshoe Hell at Horseshoe Canyon Ranch, Arkansas.
 
-**Open it:** https://batshits.github.io/24HHH/ (after GitHub Pages is turned on, see below)
+**Open it:** https://zas-tools.github.io/24HHH/ (after GitHub Pages is turned on, see below)
 
 ## What it does
 - Every route on the 2026 comp scorecard (plus Mountain Project routes not on it), with comp points, style, height and walking order.
