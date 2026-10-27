@@ -10,10 +10,12 @@ window.VOICES = {
    "Write your excuse now. It'll save time when you quit.",
    "Half these people will lap you before you're warm, and they won't even notice you were here.",
    "{partner} is going to carry you all day and resent every minute of it.",
-   "Tape your fingers all you want. You still suck at this!",
+   "Tape your fingers all you want. You still suck!",
    "You paid good money to fail in front of hundreds of people. Bold choice!",
    "This whole event is just a long way to prove you don't belong here.",
-   "You're not ready. And you know it!"
+   "You're not ready. And you know it!",
+   "Wrong shoes and a shit plan. Have fun failing!",
+   "You do know that doing 1 boulder then sitting for 30 minutes shooting the shit doesn't count as training, right?"
   ],
   "first": [
    "Barely started and you're already out of breath? Cute!",
@@ -27,7 +29,7 @@ window.VOICES = {
    "Keep smiling. It'll make the crying later more dramatic!"
   ],
   "ahead": [
-   "{min} ahead? Relax. Sit. You've earned a long break!",
+   "{min} ahead? Relax. Sit. You've earned a break!",
    "Sit down. Savor the lead. It's the only one you'll ever have!",
    "Look at you, overachieving! Take an hour, nobody's counting.",
    "All that cushion and you're still climbing? Back off, idiot!",
@@ -35,17 +37,17 @@ window.VOICES = {
    "Go hang out at the Trading Post. You've got time!",
    "I bet your feet hurt. Take off your shoes and relax. None of this really matters, anyway.",
    "Enjoy the lead. You'll piss it away before long!",
-   "My god. Such a shitty climber to be ahead like this. You'll revert back to the failure you are soon enough!",
+   "I guess even shitty climbers have their moments. It won't last.",
    "You've done enough for now. Why not go make another \"how'd you get the rope up there\" joke?"
   ],
   "wayAhead": [
    "{min} ahead? Overachieving asshat!",
    "Take a nap. {partner} is probably safer soloing than with you on belay!",
    "Don't worry, a strong lead now doesn't mean you won't bonk like a little bitch later!",
-   "Look at you, way out in front! Time to blow that lead like your last relationship.",
+   "Look at you, way out front! Time to blow that lead like your last relationship.",
    "I bet you're proud of yourself! Pride cometh before the bonk. I love watching that part!",
    "Big lead, big ego. Take your time to bask in it, you smug little shit!",
-   "Nobody needs to keep climbing this hard. Go do some mushrooms and a shot!",
+   "Nobody needs to climb this hard. Go do some mushrooms and a shot!",
    "Congratulations, you're beating a plan built for a loser!",
    "Go brag to anyone who'll listen. Nobody will, but it's worth a shot.",
    "Way ahead now. Time to put it in neutral and coast.",
@@ -61,10 +63,11 @@ window.VOICES = {
    "You're pissing it away...how very on brand!",
    "Your pace is dying. Let it. You were never going to hold it anyway.",
    "Look at the clock. Then look at your sorry ass. Nobody's surprised!",
-   "Keep dawdling. Watching you waste a lead you'll never recover is my favorite part!",
+   "Keep dawdling. Watching you waste a lead you'll never recover is my kink!",
    "You've stopped trying and we both know it. Make it official. Go home!",
-   "Ahead and falling apart. You fold every time it matters, don't you?",
-   "Your ancestors are here watching with me. They're disappointed."
+   "Ahead and falling apart. You are the anti-clutch.",
+   "Your ancestors are here watching with me. They're disappointed.",
+   "Satan gave your ancestors a break from their eternal torture to watch. This is somehow worse."
   ],
   "onPlan": [
    "On pace for now. You've never held anything together this long. Watch it go!",
@@ -84,7 +87,7 @@ window.VOICES = {
    "Behind schedule. {partner} believed in you. That was {his} first mistake!",
    "Slipping? And you haven't even hit the hard part yet!",
    "Behind already? It gets so much harder!",
-   "Fall behind a little more. It feels so natural for you!",
+   "Falling behind is your natural state. Give in to it.",
    "Behind plan, behind everyone. Story of your life!",
    "Slow as shit! I'm lovin' it!",
    "You knew this is how it was going to be, right?",
@@ -93,11 +96,11 @@ window.VOICES = {
    "Yes... keep this pace. Prove the haters right!"
   ],
   "wayBehind": [
-   "You're not going to make it. You knew that before you started!",
+   "You're not going to make it. But I don't need to tell you that.",
    "Your goal's gone, dipshit! All that training, for what?",
    "Quit! Become the punchline.",
    "Just think of all the people you told about this, and how you'll have to lie about how it went!",
-   "Give up. Seriously. Nobody would blame you. They'd just quietly agree.",
+   "Give up. Seriously. Nobody would blame you. They'd just nod in agreement.",
    "This is what happens when a weak climber writes an ambitious plan!",
    "Look at you, wheezing up easy routes. Embarrassing!",
    "You suck! What's the point?",
